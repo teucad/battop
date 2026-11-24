@@ -12,9 +12,12 @@ CUSTOM = "11111111-2222-3333-4444-555555555555"
 @unittest.skipUnless(sys.platform == "win32", "Windows only")
 class PowerPlanActionTests(unittest.TestCase):
     def setUp(self):
-        patcher = mock.patch.object(power_mode, "power", wraps=power)
+        # A pure mock (no `wraps=`): nothing here may reach the real Windows power APIs.
+        patcher = mock.patch.object(power_mode, "power")
         self.power = patcher.start()
         self.addCleanup(patcher.stop)
+        self.power.SCHEME_BALANCED = power.SCHEME_BALANCED
+        self.power.SCHEME_POWER_SAVER = power.SCHEME_POWER_SAVER
         self.action = power_mode.PowerPlanAction()
 
     def test_custom_plan_switches_to_power_saver_and_back(self):
