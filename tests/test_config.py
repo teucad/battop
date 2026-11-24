@@ -54,6 +54,10 @@ class SettingsTests(unittest.TestCase):
         s = Settings.from_dict({"screen_off_minutes": 0, "sleep_minutes": 9999, "low_tier_threshold": 99})
         self.assertEqual((s.screen_off_minutes, s.sleep_minutes, s.low_tier_threshold), (1, 120, 50))
 
+    def test_choice_settings_fall_back_to_the_default_when_invalid(self):
+        self.assertEqual(Settings.from_dict({"theme": "purple"}).theme, "system")
+        self.assertEqual(Settings.from_dict({"theme": "dark"}).theme, "dark")
+
 
 if __name__ == "__main__":
     unittest.main()

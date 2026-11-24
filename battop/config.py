@@ -24,6 +24,9 @@ _RANGES = {
     "anime_brightness": (1, 3),
 }
 
+# Settings that must be one of a fixed set of values.
+_CHOICES = {"theme": ("system", "light", "dark")}
+
 
 def data_dir() -> Path:
     path = Path(os.environ.get("APPDATA") or Path.home()) / "Battop"
@@ -66,6 +69,7 @@ class Settings:
     # Stay hidden in the tray when launched automatically at sign-in.
     start_minimized: bool = True
     notifications: bool = True
+    theme: str = "system"
 
     def normalized(self) -> Settings:
         """Return a copy with numbers clamped and app names cleaned up."""
@@ -73,6 +77,9 @@ class Settings:
             name: min(max(getattr(self, name), lo), hi) for name, (lo, hi) in _RANGES.items()
         }
         changes["efficiency_apps"] = normalize_app_names(self.efficiency_apps)
+        for name, choices in _CHOICES.items():
+            if getattr(self, name) not in choices:
+                changes[name] = choices[0]
         return replace(self, **changes)
 
     def to_dict(self) -> dict:

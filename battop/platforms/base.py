@@ -30,9 +30,16 @@ class Platform(Protocol):
     def running_app_names(self) -> list[str]: ...
 
     def start_events(
-        self, on_power_change: Callable[[], None], on_end_session: Callable[[], None], on_show: Callable[[], None]
+        self,
+        on_power_change: Callable[[], None],
+        on_end_session: Callable[[], None],
+        on_show: Callable[[], None],
+        on_theme_change: Callable[[], None],
     ) -> Callable[[], None]:
         """Listen for OS events; returns a function that stops listening."""
+
+    def system_theme(self) -> str:
+        """'light' or 'dark', following the operating system's setting."""
 
     def signal_existing_instance(self) -> bool:
         """Ask an already-running Battop to show its window."""

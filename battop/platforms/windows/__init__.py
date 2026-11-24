@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import winreg
 
 from . import anime, autostart, events, power
 from .actions import default_actions
@@ -55,11 +56,23 @@ class WindowsPlatform:
     def warning(self, key: str) -> str | None:
         return anime.ghelper_conflict() if key == "anime_battery" else None
 
-    def start_events(self, on_power_change, on_end_session, on_show):
+    def start_events(self, on_power_change, on_end_session, on_show, on_theme_change):
         window = events.EventWindow(
-            on_power_change=on_power_change, on_end_session=on_end_session, on_show=on_show
+            on_power_change=on_power_change,
+            on_end_session=on_end_session,
+            on_show=on_show,
+            on_theme_change=on_theme_change,
         )
         window.start()  # If it fails we just fall back to polling.
         return window.stop
 
     signal_existing_instance = staticmethod(events.signal_existing_instance)
+
+    def system_theme(self) -> str:
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+            ) as key:
+                return "light" if winreg.QueryValueEx(key, "AppsUseLightTheme")[0] else "dark"
+        except OSError:
+            return "light"

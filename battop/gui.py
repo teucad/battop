@@ -8,26 +8,20 @@ import queue
 import sys
 import tkinter as tk
 from dataclasses import replace
-from tkinter import messagebox, scrolledtext, ttk
+from tkinter import messagebox, ttk
 
-from . import __version__
+from PIL import Image, ImageTk
+
+from . import __version__, theme
 from .config import Settings, data_dir, normalize_app_names
 from .engine import Engine
+from .gui_theme import COLORS, ThemeManager
 from .platforms.base import Platform
+from .resources import resource_path
 from .tray import Tray
+from .uninstall import uninstall
 
 FONT = "Segoe UI"
-COLORS = {
-    "bg": "#f3f5f8",
-    "card": "#ffffff",
-    "border": "#e3e7ee",
-    "text": "#1f2937",
-    "muted": "#6b7280",
-    "accent": "#16a34a",
-    "warn": "#d97706",
-    "danger": "#dc2626",
-    "idle": "#9ca3af",
-}
 _BOOL_KEYS = (
     "enabled",
     "power_mode_enabled",
@@ -41,6 +35,7 @@ _BOOL_KEYS = (
     "low_tier_enabled",
     "app_efficiency_enabled",
     "start_minimized",
+    "notifications",
 )
 _NUMBER_KEYS = (
     "brightness_percent",
@@ -52,7 +47,9 @@ _NUMBER_KEYS = (
     "low_brightness_percent",
     "low_cpu_max_percent",
     "anime_brightness",
+    "poll_interval_sec",
 )
+_THEME_CHOICES = (("system", "Follow system"), ("light", "Light"), ("dark", "Dark"))
 _SAVE_DELAY_MS = 600
 _POLL_MS = 500
 _MAX_LOG_LINES = 300
@@ -87,21 +84,30 @@ class MainWindow:
         self._save_job: str | None = None
         self._loading = False
         self._told_about_tray = False
+        self._uninstalled = False
+        self._refreshers: list = []
+        self.app_list: tk.Listbox | None = None  # Only exists on platforms with per-app efficiency mode.
 
+        global FONT
+        self.theme = ThemeManager(root)
+        FONT = self.theme.font
         scale = root.winfo_fpixels("1i") / 96
         root.title("Battop - Battery Saver")
         root.geometry(f"{int(640 * scale)}x{int(660 * scale)}")
         root.minsize(int(580 * scale), int(560 * scale))
-        root.configure(bg=COLORS["bg"])
         root.protocol("WM_DELETE_WINDOW", self.on_close)
-
-        self._init_style()
+        root.bind("<Escape>", lambda _: self.on_close())
+        self._set_icon()
+        self.theme.apply(self._resolved_theme(engine.settings.theme))
         self.vars: dict[str, tk.Variable] = {k: tk.BooleanVar() for k in _BOOL_KEYS}
         self.vars.update({k: tk.DoubleVar() for k in _NUMBER_KEYS})
-        self.vars["anime_brightness"] = tk.IntVar()  # Radio buttons need an exact integer match.
+        for key in ("anime_brightness", "poll_interval_sec"):
+            self.vars[key] = tk.IntVar()  # Radio buttons and spinboxes need exact integers.
+        self.theme_var = tk.StringVar()
 
         notebook = ttk.Notebook(root)
         notebook.pack(fill="both", expand=True, padx=14, pady=(14, 4))
+        notebook.enable_traversal()  # Ctrl+Tab / Ctrl+Shift+Tab switch tabs.
         notebook.add(self._build_overview(notebook), text="Overview")
         notebook.add(self._build_power_page(notebook), text="Power saving")
         if platform.supported_keys & {"refresh_rate", "timeouts", "bluetooth", "anime_battery"}:
@@ -114,7 +120,7 @@ class MainWindow:
         self.footer.pack(fill="x", padx=18, pady=(0, 10))
 
         self._load(engine.settings)
-        for var in self.vars.values():
+        for var in (*self.vars.values(), self.theme_var):
             var.trace_add("write", self._schedule_save)
 
         if start_hidden and tray.available:
@@ -123,40 +129,34 @@ class MainWindow:
 
     # --- Layout helpers -----------------------------------------------------
 
-    def _init_style(self) -> None:
-        c = COLORS
-        style = ttk.Style(self.root)
-        style.theme_use("clam")
-        style.configure(".", background=c["bg"], foreground=c["text"], font=(FONT, 10))
-        style.configure("TNotebook", background=c["bg"], borderwidth=0, tabmargins=0)
-        style.configure("TNotebook.Tab", padding=(14, 6), background=c["bg"], borderwidth=0)
-        style.map("TNotebook.Tab", background=[("selected", c["card"])])
-        style.configure("Page.TFrame", background=c["bg"])
-        style.configure("Card.TFrame", background=c["card"])
-        style.configure("Card.TLabel", background=c["card"])
-        style.configure("Title.TLabel", background=c["card"], font=(FONT, 11, "bold"))
-        style.configure("Muted.TLabel", background=c["card"], foreground=c["muted"], font=(FONT, 9))
-        style.configure("Big.TLabel", background=c["card"], font=(FONT, 26, "bold"))
-        style.configure("Value.TLabel", background=c["card"], foreground=c["accent"], font=(FONT, 11, "bold"))
-        style.configure("Footer.TLabel", background=c["bg"], foreground=c["muted"], font=(FONT, 9))
-        style.configure("Card.TCheckbutton", background=c["card"], font=(FONT, 11, "bold"))
-        style.map("Card.TCheckbutton", background=[("active", c["card"])])
-        style.configure("Plain.TCheckbutton", background=c["card"])
-        style.configure("Plain.TRadiobutton", background=c["card"])
-        style.map("Plain.TRadiobutton", background=[("active", c["card"])])
-        style.configure("Warn.TLabel", background=c["card"], foreground=c["warn"], font=(FONT, 9))
-        style.map("Plain.TCheckbutton", background=[("active", c["card"])])
-        style.configure("Horizontal.TScale", background=c["card"], troughcolor=c["border"])
-        style.configure("TButton", padding=(10, 4))
+    def _set_icon(self) -> None:
+        try:
+            if sys.platform == "win32":
+                self.root.iconbitmap(default=str(resource_path("assets", "battop.ico")))
+            else:
+                self._icon_image = ImageTk.PhotoImage(Image.open(resource_path("assets", "battop.png")))
+                self.root.iconphoto(True, self._icon_image)
+        except (tk.TclError, OSError):
+            pass  # A missing icon isn't worth failing over.
+
+    def _resolved_theme(self, setting: str) -> str:
+        return theme.resolve(setting, self.platform.system_theme())
+
+    def apply_theme(self, setting: str) -> None:
+        self.theme.apply(self._resolved_theme(setting))
+        for refresh in self._refreshers:
+            refresh()
+        self._update_status()
+
+    # --- Layout helpers -----------------------------------------------------
 
     def _page(self, notebook) -> ttk.Frame:
         page = ttk.Frame(notebook, style="Page.TFrame", padding=(0, 12, 0, 0))
         return page
 
     def _card(self, parent, expand: bool = False) -> ttk.Frame:
-        outer = tk.Frame(
-            parent, bg=COLORS["card"], highlightthickness=1, highlightbackground=COLORS["border"], bd=0
-        )
+        outer = tk.Frame(parent, highlightthickness=1, bd=0)
+        self.theme.track(outer, bg="card", highlightbackground="border")
         outer.pack(fill="both" if expand else "x", expand=expand, pady=(0, 10))
         inner = ttk.Frame(outer, style="Card.TFrame", padding=14)
         inner.pack(fill="both", expand=True)
@@ -208,6 +208,16 @@ class MainWindow:
                 command=lambda v, value=value, low=low, step=step: value.set(max(low, round(float(v) / step) * step)),
             )
             slider.pack(fill="x", pady=(8 if caption is None else 2, 0))
+            # Arrow keys move by one step (the default increments would be rounded away).
+            for keys, direction in ((("<Left>", "<Down>"), -1), (("<Right>", "<Up>"), 1)):
+                for key_name in keys:
+                    slider.bind(
+                        key_name,
+                        lambda e, value=value, low=low, high=high, step=step, d=direction: (
+                            value.set(min(high, max(low, round(value.get()) + d * step))),
+                            "break",
+                        )[1],
+                    )
             widgets.append((value, value_label, slider, unit))
         self._description(card, text)
 
@@ -217,6 +227,7 @@ class MainWindow:
                 label.configure(text=f"{value.get():.0f}{unit}", foreground=COLORS["accent" if on else "idle"])
                 slider.state(["!disabled"] if on else ["disabled"])
 
+        self._refreshers.append(refresh)
         toggle.trace_add("write", refresh)
         for value, *_ in widgets:
             value.trace_add("write", refresh)
@@ -230,7 +241,8 @@ class MainWindow:
         card = self._card(page)
         row = ttk.Frame(card, style="Card.TFrame")
         row.pack(fill="x")
-        self.battery_canvas = tk.Canvas(row, width=96, height=52, bg=COLORS["card"], highlightthickness=0)
+        self.battery_canvas = tk.Canvas(row, width=96, height=52, highlightthickness=0)
+        self.theme.track(self.battery_canvas, bg="card")
         self.battery_canvas.pack(side="left", padx=(0, 16))
         info = ttk.Frame(row, style="Card.TFrame")
         info.pack(side="left", fill="x", expand=True)
@@ -238,7 +250,7 @@ class MainWindow:
         self.percent_label.pack(anchor="w")
         self.status_label = ttk.Label(info, text="Checking your battery...", style="Card.TLabel")
         self.status_label.pack(anchor="w")
-        self.pill = tk.Label(card, font=(FONT, 9, "bold"), fg="white", padx=10, pady=3)
+        self.pill = tk.Label(card, font=(FONT, 9, "bold"), padx=10, pady=3)
         self.pill.pack(anchor="w", pady=(12, 0))
         self.active_label = self._description(card, "")
 
@@ -252,12 +264,17 @@ class MainWindow:
 
         card = self._card(page, expand=True)
         ttk.Label(card, text="Recent activity", style="Title.TLabel").pack(anchor="w", pady=(0, 6))
-        self.activity = scrolledtext.ScrolledText(
-            card, height=6, wrap="word", relief="flat", font=(FONT, 9),
-            bg=COLORS["bg"], fg=COLORS["text"], borderwidth=0, padx=8, pady=6,
+        log_frame = ttk.Frame(card, style="Card.TFrame")
+        log_frame.pack(fill="both", expand=True)
+        self.activity = tk.Text(
+            log_frame, height=6, wrap="word", relief="flat", font=(FONT, 9), borderwidth=0, padx=8, pady=6,
+            highlightthickness=0, takefocus=False,
         )
-        self.activity.pack(fill="both", expand=True)
-        self.activity.configure(state="disabled")
+        self.theme.track(self.activity, bg="field", fg="text")
+        scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=self.activity.yview)
+        self.activity.configure(yscrollcommand=scrollbar.set, state="disabled")
+        scrollbar.pack(side="right", fill="y")
+        self.activity.pack(side="left", fill="both", expand=True)
         return page
 
     def _build_power_page(self, notebook) -> ttk.Frame:
@@ -384,8 +401,11 @@ class MainWindow:
         self._description(card, "Type an app name (e.g. discord.exe) or pick one that's running from the list.")
 
         self.app_list = tk.Listbox(
-            card, height=6, relief="flat", font=(FONT, 10), activestyle="none",
-            bg=COLORS["bg"], highlightthickness=0, selectbackground=COLORS["accent"], selectmode="extended",
+            card, height=6, relief="flat", font=(FONT, 10), activestyle="none", highlightthickness=0,
+            selectmode="extended",
+        )
+        self.theme.track(
+            self.app_list, bg="field", fg="text", selectbackground="accent", selectforeground="on_accent"
         )
         self.app_list.pack(fill="both", expand=True, pady=(10, 8))
         self.app_list.bind("<Delete>", lambda _: self._remove_apps())
@@ -411,11 +431,36 @@ class MainWindow:
             self._description(card, "Tray icon unavailable: install it with “pip install pystray Pillow”.")
 
         card = self._card(page)
+        ttk.Label(card, text="Appearance and behaviour", style="Title.TLabel").pack(anchor="w", pady=(0, 6))
+        row = ttk.Frame(card, style="Card.TFrame")
+        row.pack(fill="x")
+        ttk.Label(row, text="Theme", style="Card.TLabel").pack(side="left", padx=(0, 10))
+        self.theme_box = ttk.Combobox(
+            row, textvariable=self.theme_var, state="readonly", width=14, values=[name for _, name in _THEME_CHOICES]
+        )
+        self.theme_box.pack(side="left")
+        self.theme_box.bind("<<ComboboxSelected>>", lambda _: self.apply_theme(self._theme_setting()))
+        row = ttk.Frame(card, style="Card.TFrame")
+        row.pack(fill="x", pady=(8, 0))
+        ttk.Label(row, text="Check the power status at least every", style="Card.TLabel").pack(side="left")
+        ttk.Spinbox(row, from_=5, to=300, increment=5, width=5, textvariable=self.vars["poll_interval_sec"]).pack(
+            side="left", padx=8
+        )
+        ttk.Label(row, text="seconds", style="Card.TLabel").pack(side="left")
+        ttk.Checkbutton(
+            card, text="Show a notification when saving turns on or off", variable=self.vars["notifications"],
+            style="Plain.TCheckbutton",
+        ).pack(anchor="w", pady=(8, 0))
+
+        card = self._card(page)
         ttk.Label(card, text="Settings", style="Title.TLabel").pack(anchor="w", pady=(0, 6))
         buttons = ttk.Frame(card, style="Card.TFrame")
         buttons.pack(fill="x")
         ttk.Button(buttons, text="Reset to defaults", command=self._reset).pack(side="left")
         ttk.Button(buttons, text="Open data folder", command=lambda: os.startfile(data_dir())).pack(
+            side="left", padx=(8, 0)
+        )
+        ttk.Button(buttons, text="Remove Battop from this PC\u2026", command=self._uninstall).pack(
             side="left", padx=(8, 0)
         )
 
@@ -435,19 +480,33 @@ class MainWindow:
         try:
             for key, var in self.vars.items():
                 var.set(getattr(settings, key))
-            self.app_list.delete(0, "end")
-            for name in settings.efficiency_apps:
-                self.app_list.insert("end", name)
+            self.theme_var.set(dict(_THEME_CHOICES)[settings.theme])
+            if self.app_list is not None:
+                self.app_list.delete(0, "end")
+                for name in settings.efficiency_apps:
+                    self.app_list.insert("end", name)
         finally:
             self._loading = False
 
     def _collect(self) -> Settings:
-        values = {
-            key: int(round(var.get())) if key in _NUMBER_KEYS else bool(var.get())
-            for key, var in self.vars.items()
-        }
-        values["efficiency_apps"] = tuple(self.app_list.get(0, "end"))
+        current = self.engine.settings
+        values = {}
+        for key, var in self.vars.items():
+            if key not in _NUMBER_KEYS:
+                values[key] = bool(var.get())
+                continue
+            try:
+                values[key] = int(round(var.get()))
+            except (tk.TclError, ValueError):  # E.g. half-typed text in the interval box.
+                values[key] = getattr(current, key)
+        if self.app_list is not None:
+            values["efficiency_apps"] = tuple(self.app_list.get(0, "end"))
+        values["theme"] = self._theme_setting()
         return replace(self.engine.settings, **values)
+
+    def _theme_setting(self) -> str:
+        by_name = {name: key for key, name in _THEME_CHOICES}
+        return by_name.get(self.theme_var.get(), "system")
 
     def _schedule_save(self, *_):
         if self._loading:
@@ -458,6 +517,8 @@ class MainWindow:
 
     def _save(self) -> None:
         self._save_job = None
+        if self._uninstalled:
+            return
         try:
             self.engine.submit_settings(self._collect())
         except OSError as exc:
@@ -494,6 +555,28 @@ class MainWindow:
             self._load(Settings())
             self._schedule_save()
 
+    def _uninstall(self) -> None:
+        if not messagebox.askyesno(
+            "Battop",
+            "Remove Battop from this PC?\n\nThis restores your normal settings, stops Battop starting with "
+            "Windows, deletes its settings and logs, and closes Battop. The Battop program files stay where "
+            "they are, so you can delete that folder afterwards.",
+            icon="warning",
+        ):
+            return
+        if self._save_job:
+            self.root.after_cancel(self._save_job)
+            self._save_job = None
+        self._uninstalled = True
+        self.engine.stop()
+        problems = uninstall(self.platform)
+        self.tray.stop()
+        if problems:
+            messagebox.showwarning("Battop", "Battop was removed, but:\n\n" + "\n".join(problems))
+        else:
+            messagebox.showinfo("Battop", "Battop has been removed from this PC. You can delete its folder now.")
+        self.root.destroy()
+
     # --- Live updates ---------------------------------------------------------
 
     def _poll(self) -> None:
@@ -529,6 +612,9 @@ class MainWindow:
                 self.root.deiconify()
                 self.root.lift()
                 self.root.focus_force()
+            elif command == "theme":
+                if self._theme_setting() == "system":
+                    self.apply_theme("system")
             elif command == "toggle":
                 self.vars["enabled"].set(not self.vars["enabled"].get())
             elif command == "quit":
@@ -558,12 +644,13 @@ class MainWindow:
         self._draw_battery(fill, plugged=status is not None and not status.on_battery)
 
         if self.engine.saving:
-            state, pill, color = "saving", "Battery saving is ON", COLORS["accent"]
+            state, pill, colors = "saving", "Battery saving is ON", (COLORS["accent"], COLORS["on_accent"])
         elif not enabled:
-            state, pill, color = "paused", "Paused", COLORS["warn"]
+            state, pill, colors = "paused", "Paused", (COLORS["warn"], COLORS["on_accent"])
         else:
-            state, pill, color = "idle", "Standing by · starts when you unplug", COLORS["idle"]
-        self.pill.configure(text=pill, bg=color)
+            state, pill = "idle", "Standing by · starts when you unplug"
+            colors = (COLORS["pill_idle_bg"], COLORS["pill_idle_fg"])
+        self.pill.configure(text=pill, bg=colors[0], fg=colors[1])
         titles = self.engine.active_titles()
         self.active_label.configure(text=("Active now: " + ", ".join(titles)) if titles else "")
         self.tray.update(state, f"Battop - {percent_text} · {pill}", paused=not enabled)
@@ -579,7 +666,7 @@ class MainWindow:
         width = max(2, int(74 * percent / 100))
         c.create_rectangle(8, 11, 8 + width, 41, fill=color, outline="")
         if plugged:  # Lightning bolt.
-            c.create_polygon(48, 10, 34, 28, 44, 28, 38, 42, 54, 23, 44, 23, 50, 10, fill="white", outline="")
+            c.create_polygon(48, 10, 34, 28, 44, 28, 38, 42, 54, 23, 44, 23, 50, 10, fill=COLORS["on_accent"], outline=COLORS["text"])
 
     # --- Window lifecycle -----------------------------------------------------
 

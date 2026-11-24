@@ -16,6 +16,7 @@ from .engine import Engine
 from .gui import MainWindow, QueueLogHandler
 from .i18n import _
 from .tray import Tray
+from .uninstall import uninstall
 
 
 def _setup_logging(debug: bool) -> queue.Queue:
@@ -42,6 +43,9 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="battop", description="Automatic battery saving for laptops.")
     parser.add_argument("--startup", action="store_true", help="launched at sign-in (may start hidden)")
     parser.add_argument("--debug", action="store_true", help="verbose logging")
+    parser.add_argument(
+        "--uninstall", action="store_true", help="undo Battop's changes, remove its startup entry and data, then exit"
+    )
     args = parser.parse_args(argv)
 
     platform = platforms.current()
@@ -52,6 +56,13 @@ def main(argv: list[str] | None = None) -> None:
             root = tk.Tk()
             root.withdraw()
             messagebox.showinfo("Battop", "Battop is already running. Look for its icon in the system tray.")
+        return
+
+    if args.uninstall:
+        engine = Engine(SettingsStore(), platform.actions(), platform.power_status, data_dir() / "state.json")
+        engine.recover_previous_session()
+        problems = uninstall(platform)
+        print("Battop was removed." if not problems else "Battop was removed, but: " + "; ".join(problems))
         return
 
     log_queue = _setup_logging(args.debug)
@@ -71,6 +82,7 @@ def main(argv: list[str] | None = None) -> None:
         on_power_change=engine.wake,
         on_end_session=engine.stop,  # Restore everything before Windows signs out or shuts down.
         on_show=lambda: commands.put("show"),
+        on_theme_change=lambda: commands.put("theme"),
     )
 
     root = tk.Tk()

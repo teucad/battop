@@ -77,7 +77,7 @@ class Engine:
         self._wake.set()
 
     def start(self) -> None:
-        self._recover_previous_session()
+        self.recover_previous_session()
         self._thread = threading.Thread(target=self._run, name="battop-engine", daemon=True)
         self._thread.start()
 
@@ -229,7 +229,8 @@ class Engine:
         except OSError as exc:
             log.warning("Couldn't save undo information: %s", exc)
 
-    def _recover_previous_session(self) -> None:
+    def recover_previous_session(self) -> None:
+        """Undo changes left behind by a crash or shutdown while on battery."""
         if self._state_path is None or not self._state_path.exists():
             return
         try:
