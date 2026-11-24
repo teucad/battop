@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import queue
 import sys
 import tkinter as tk
@@ -146,9 +145,14 @@ class MainWindow:
 
     def apply_language(self, setting: str) -> None:
         """Switch language and rebuild the window, keeping every value and the selected tab."""
-        current = self._collect()  # Read the widgets before they are replaced.
-        selected = self.notebook.index("current")
+        current = self._collect()  # Read the widgets (and their translated names) before they change.
         i18n.set_language(i18n.resolve(setting, self.platform.system_language()))
+        self._rebuild(current)
+        self.tray.retranslate()
+
+    def _rebuild(self, current: Settings) -> None:
+        """Recreate every tab (after a language change, or when something became available)."""
+        selected = self.notebook.index("current")
         for var, trace_id in self._traces:
             var.trace_remove("write", trace_id)
         self._traces.clear()
@@ -159,7 +163,6 @@ class MainWindow:
         self._build_ui()
         self._load(current)
         self.notebook.select(min(selected, len(self.notebook.tabs()) - 1))
-        self.tray.retranslate()
         self._update_status()
 
     def _trace(self, var: tk.Variable, callback) -> None:
@@ -170,8 +173,6 @@ class MainWindow:
 
     def _language_names(self) -> dict[str, str]:
         return {"system": _("Follow system"), **i18n.LANGUAGE_NAMES}
-
-    # --- Layout helpers -----------------------------------------------------
 
     def _set_icon(self) -> None:
         try:
@@ -212,23 +213,38 @@ class MainWindow:
         label.bind("<Configure>", lambda e: e.widget.configure(wraplength=max(e.width - 4, 120)))
         return label
 
-    def _toggle_card(self, parent, key: str, title: str, text: str, unavailable: str | None = None) -> ttk.Frame:
+    def _fix_button(self, card, fix) -> None:
+        """`fix` is (button label, callback) from Platform.fix_action, or None."""
+        if fix:
+            label, callback = fix
+            ttk.Button(card, text=label, command=lambda: self._run_fix(callback)).pack(anchor="w", pady=(8, 0))
+
+    def _run_fix(self, callback) -> None:
+        try:
+            callback()
+        except OSError as exc:
+            messagebox.showerror(_("Battop"), str(exc))
+        # Re-evaluate what is available (after the button's own widget has finished its click).
+        self.root.after_idle(lambda: self._rebuild(self._collect()))
+
+    def _toggle_card(self, parent, key: str, title: str, text: str, unavailable=None, fix=None) -> ttk.Frame:
         card = self._card(parent)
         check = ttk.Checkbutton(card, text=title, variable=self.vars[key], style="Card.TCheckbutton")
         check.pack(anchor="w")
         self._description(card, unavailable or text)
         if unavailable:
             check.state(["disabled"])
-            if sys.platform == "win32":
-                ttk.Button(
-                    card, text=_("Open power settings"), command=lambda: os.startfile("ms-settings:powersleep")
-                ).pack(anchor="w", pady=(8, 0))
+            self._fix_button(card, fix)
         return card
 
-    def _slider_card(self, parent, toggle_key, value_key, title, text, low, high, unit="%", step=5) -> None:
-        self._sliders_card(parent, toggle_key, title, text, [(value_key, None, low, high, unit, step)])
+    def _slider_card(
+        self, parent, toggle_key, value_key, title, text, low, high, unit="%", step=5, unavailable=None, fix=None
+    ) -> None:
+        self._sliders_card(
+            parent, toggle_key, title, text, [(value_key, None, low, high, unit, step)], unavailable, fix
+        )
 
-    def _sliders_card(self, parent, toggle_key, title, text, sliders) -> None:
+    def _sliders_card(self, parent, toggle_key, title, text, sliders, unavailable=None, fix=None) -> None:
         """A toggle with one or more sliders; each slider is (key, caption, low, high, unit, step).
 
         A lone slider shows its value on the title row; several get a captioned row each.
@@ -237,7 +253,10 @@ class MainWindow:
         top = ttk.Frame(card, style="Card.TFrame")
         top.pack(fill="x")
         toggle = self.vars[toggle_key]
-        ttk.Checkbutton(top, text=title, variable=toggle, style="Card.TCheckbutton").pack(side="left")
+        check = ttk.Checkbutton(top, text=title, variable=toggle, style="Card.TCheckbutton")
+        check.pack(side="left")
+        if unavailable:
+            check.state(["disabled"])
         widgets = []
         for key, caption, low, high, unit, step in sliders:
             value = self.vars[key]
@@ -263,10 +282,12 @@ class MainWindow:
                         )[1],
                     )
             widgets.append((value, value_label, slider, unit))
-        self._description(card, text)
+        self._description(card, unavailable or text)
+        if unavailable:
+            self._fix_button(card, fix)
 
         def refresh(*_):
-            on = toggle.get()
+            on = toggle.get() and not unavailable
             for value, label, slider, unit in widgets:
                 label.configure(text=f"{value.get():.0f}{unit}", foreground=COLORS["accent" if on else "idle"])
                 slider.state(["!disabled"] if on else ["disabled"])
@@ -328,9 +349,11 @@ class MainWindow:
             self._toggle_card(
                 page,
                 "power_mode_enabled",
-                _("Use “Best power efficiency” mode"),
-                _("Switches Windows to its most efficient power mode. Your previous mode comes back when you plug in."),
+                _("Use the most efficient power mode"),
+                _("Switches to the most power-efficient mode (“Best power efficiency” on Windows, “Power Saver” on Linux). "
+                  "Your previous mode comes back when you plug in."),
                 unavailable=self.platform.unavailable_reason("power_mode"),
+                fix=self.platform.fix_action("power_mode"),
             )
         if "brightness" in supported:
             self._slider_card(
@@ -345,6 +368,8 @@ class MainWindow:
                 _("Lower values keep the laptop cooler and the battery going longer, "
                 "but apps may feel slower. 70-90% is a good balance."),
                 30, 100,
+                unavailable=self.platform.unavailable_reason("cpu_limit"),
+                fix=self.platform.fix_action("cpu_limit"),
             )
         if "battery_saver" in supported:
             self._slider_card(
@@ -369,7 +394,7 @@ class MainWindow:
         if "timeouts" in supported:
             self._sliders_card(
                 page, "timeouts_enabled", _("Turn off the screen and sleep sooner"),
-                _("Only ever shortens your Windows battery timeouts, never lengthens them."),
+                _("Only ever shortens your screen-off and sleep timeouts on battery, never lengthens them."),
                 [
                     ("screen_off_minutes", _("Turn off screen after"), 1, 30, _(" min"), 1),
                     ("sleep_minutes", _("Sleep after"), 1, 60, _(" min"), 1),
@@ -429,9 +454,10 @@ class MainWindow:
             page,
             "app_efficiency_enabled",
             _("Put these apps in efficiency mode"),
-            _("Efficiency mode (the same one Task Manager uses) gives an app lower priority and lets "
-            "Windows run it on power-saving settings. Good candidates: chat apps, game launchers, "
-            "cloud sync and updaters."),
+            _("Gives an app lower priority so it uses less power (on Windows this is the same Efficiency "
+            "mode Task Manager uses). Good candidates: chat apps, game launchers, cloud sync and updaters."),
+            unavailable=self.platform.unavailable_reason("app_efficiency"),
+            fix=self.platform.fix_action("app_efficiency"),
         )
         card = self._card(page, expand=True)
         add_row = ttk.Frame(card, style="Card.TFrame")
@@ -442,7 +468,7 @@ class MainWindow:
         self.app_entry.pack(side="left", fill="x", expand=True)
         self.app_entry.bind("<Return>", lambda _: self._add_app())
         ttk.Button(add_row, text=_("Add"), command=self._add_app).pack(side="left", padx=(8, 0))
-        self._description(card, _("Type an app name (e.g. discord.exe) or pick one that's running from the list."))
+        self._description(card, _("Type an app name (e.g. discord) or pick one that's running from the list."))
 
         self.app_list = tk.Listbox(
             card, height=6, relief="flat", font=(FONT, 10), activestyle="none", highlightthickness=0,
@@ -462,11 +488,11 @@ class MainWindow:
         ttk.Label(card, text=_("Startup"), style="Title.TLabel").pack(anchor="w", pady=(0, 6))
         self.autostart_var = tk.BooleanVar(value=self.platform.autostart_enabled())
         ttk.Checkbutton(
-            card, text=_("Start Battop when I sign in to Windows"), variable=self.autostart_var,
+            card, text=_("Start Battop when I sign in"), variable=self.autostart_var,
             style="Plain.TCheckbutton", command=self._toggle_autostart,
         ).pack(anchor="w")
         minimized = ttk.Checkbutton(
-            card, text=_("When starting with Windows, stay hidden in the system tray"), variable=self.vars["start_minimized"],
+            card, text=_("When starting at sign-in, stay hidden in the system tray"), variable=self.vars["start_minimized"],
             style="Plain.TCheckbutton",
         )
         minimized.pack(anchor="w", pady=(4, 0))
@@ -513,7 +539,7 @@ class MainWindow:
         buttons = ttk.Frame(card, style="Card.TFrame")
         buttons.pack(fill="x")
         ttk.Button(buttons, text=_("Reset to defaults"), command=self._reset).pack(side="left")
-        ttk.Button(buttons, text=_("Open data folder"), command=lambda: os.startfile(data_dir())).pack(
+        ttk.Button(buttons, text=_("Open data folder"), command=lambda: self.platform.open_path(data_dir())).pack(
             side="left", padx=(8, 0)
         )
         ttk.Button(buttons, text=_("Remove Battop from this PC\u2026"), command=self._uninstall).pack(
@@ -620,8 +646,8 @@ class MainWindow:
     def _uninstall(self) -> None:
         if not messagebox.askyesno(
             _("Battop"),
-            _("Remove Battop from this PC?\n\nThis restores your normal settings, stops Battop starting with "
-            "Windows, deletes its settings and logs, and closes Battop. The Battop program files stay where "
+            _("Remove Battop from this PC?\n\nThis restores your normal settings, stops Battop starting at "
+            "sign-in, deletes its settings and logs, and closes Battop. The Battop program files stay where "
             "they are, so you can delete that folder afterwards."),
             icon="warning",
         ):

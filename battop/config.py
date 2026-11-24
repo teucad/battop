@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 
@@ -31,7 +32,11 @@ _CHOICES = {"theme": ("system", "light", "dark"), "language": ("system", "en", "
 
 
 def data_dir() -> Path:
-    path = Path(os.environ.get("APPDATA") or Path.home()) / "Battop"
+    """Where settings, the log and undo data live (created on first use)."""
+    if sys.platform == "win32":
+        path = Path(os.environ.get("APPDATA") or Path.home()) / "Battop"
+    else:
+        path = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "battop"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -132,13 +137,13 @@ def effective(settings: Settings, low: bool) -> Settings:
 
 
 def normalize_app_names(names) -> tuple[str, ...]:
-    """Lower-case, add '.exe' where missing, drop blanks and duplicates (order kept)."""
+    """Lower-case, add '.exe' on Windows where missing, drop blanks and duplicates (order kept)."""
     result: list[str] = []
     for name in names:
         name = name.strip().lower()
         if not name:
             continue
-        if not name.endswith(".exe"):
+        if sys.platform == "win32" and not name.endswith(".exe"):
             name += ".exe"
         if name not in result:
             result.append(name)

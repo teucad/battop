@@ -11,6 +11,9 @@ class FakePlatform:
         self.fail = fail
         self.autostart_calls = []
 
+    def uninstall_extras(self):
+        return []
+
     def set_autostart(self, enabled):
         self.autostart_calls.append(enabled)
         if self.fail:

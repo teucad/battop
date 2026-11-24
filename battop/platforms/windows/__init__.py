@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import winreg
 
 from ...i18n import _
@@ -46,6 +47,19 @@ class WindowsPlatform:
             "Windows keeps a separate power mode for battery, which Battop can't safely switch "
             "back afterwards. Change it in Settings › System › Power & battery."
         )
+
+    def fix_action(self, key: str):
+        if key == "power_mode" and self.unavailable_reason(key):
+            return _("Open power settings"), lambda: os.startfile("ms-settings:powersleep")
+        return None
+
+    open_path = staticmethod(os.startfile)
+
+    def notify(self, title: str, message: str) -> bool:
+        return False  # The tray icon's balloon is used.
+
+    def uninstall_extras(self) -> list[str]:
+        return []
 
     def actions(self):
         blocked = self.unavailable_reason("power_mode") is not None

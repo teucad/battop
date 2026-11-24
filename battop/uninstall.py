@@ -20,7 +20,8 @@ def uninstall(platform: Platform) -> list[str]:
     try:
         platform.set_autostart(False)
     except OSError as exc:
-        problems.append(_("couldn't remove it from Windows startup ({error})").format(error=exc))
+        problems.append(_("couldn't remove it from the startup list ({error})").format(error=exc))
+    problems += platform.uninstall_extras()
     folder = data_dir()
     for handler in list(logging.getLogger("battop").handlers):  # The log file must be closed to delete it.
         handler.close()

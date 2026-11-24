@@ -43,10 +43,20 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="battop", description="Automatic battery saving for laptops.")
     parser.add_argument("--startup", action="store_true", help="launched at sign-in (may start hidden)")
     parser.add_argument("--debug", action="store_true", help="verbose logging")
+    parser.add_argument("--setup-linux-helper", action="store_true", help="Linux: install the optional root helper (run as root)")
+    parser.add_argument("--remove-linux-helper", action="store_true", help="Linux: remove the root helper (run as root)")
+    parser.add_argument("--install-desktop-entry", action="store_true", help="Linux: add Battop to the application menu")
     parser.add_argument(
         "--uninstall", action="store_true", help="undo Battop's changes, remove its startup entry and data, then exit"
     )
     args = parser.parse_args(argv)
+
+    if args.setup_linux_helper or args.remove_linux_helper or args.install_desktop_entry:
+        if not sys.platform.startswith("linux"):
+            parser.error("these options only exist on Linux")
+        from .platforms.linux import setup
+
+        sys.exit(setup.main(args))
 
     platform = platforms.current()
     platform.init_process()
@@ -73,7 +83,8 @@ def main(argv: list[str] | None = None) -> None:
 
     def notify(kind: str) -> None:
         title, message = _NOTIFICATIONS[kind]
-        tray.notify(_(title), _(message))
+        if not platform.notify(_(title), _(message)):
+            tray.notify(_(title), _(message))
 
     engine = Engine(
         SettingsStore(), platform.actions(), platform.power_status, data_dir() / "state.json", on_event=notify

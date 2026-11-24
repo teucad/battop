@@ -27,6 +27,18 @@ class Platform(Protocol):
     def warning(self, key: str) -> str | None:
         """A caution to show on a card whose action works but may not behave as expected."""
 
+    def fix_action(self, key: str):
+        """(button label, callback) that resolves why `key` is unavailable, or None."""
+
+    def open_path(self, path) -> None:
+        """Open a folder in the file manager."""
+
+    def notify(self, title: str, message: str) -> bool:
+        """Show a desktop notification; False means "use the tray icon instead"."""
+
+    def uninstall_extras(self) -> list[str]:
+        """Remove platform-specific leftovers (launcher entries etc.); returns problems."""
+
     def running_app_names(self) -> list[str]: ...
 
     def start_events(

@@ -9,7 +9,7 @@ from .i18n import _
 try:
     import pystray
     from .icon import draw_icon
-except ImportError:  # Battop still works, just without a tray icon.
+except Exception:  # No tray support (or no display): Battop still works, just without a tray icon.
     pystray = None
 
 _COLORS = {"saving": "#16a34a", "idle": "#6b7280", "paused": "#d97706"}
