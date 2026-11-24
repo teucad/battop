@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import ctypes
 import logging
 import queue
 import sys
@@ -11,24 +10,11 @@ import tkinter as tk
 from logging.handlers import RotatingFileHandler
 from tkinter import messagebox
 
-from .actions import default_actions
+from . import platforms, single_instance
 from .config import SettingsStore, data_dir
 from .engine import Engine
 from .gui import MainWindow, QueueLogHandler
-from .power import get_power_status
 from .tray import Tray
-
-_ERROR_ALREADY_EXISTS = 183
-
-
-def _acquire_single_instance():
-    """Return a mutex handle, or None if Battop is already running."""
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateMutexW.restype = ctypes.c_void_p
-    handle = kernel32.CreateMutexW(None, False, "Local\\BattopSingleInstance")
-    if ctypes.get_last_error() == _ERROR_ALREADY_EXISTS:
-        return None
-    return handle
 
 
 def _setup_logging(debug: bool) -> queue.Queue:
@@ -50,27 +36,24 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--debug", action="store_true", help="verbose logging")
     args = parser.parse_args(argv)
 
-    mutex = _acquire_single_instance()
-    if mutex is None:
+    if not single_instance.acquire():
         root = tk.Tk()
         root.withdraw()
         messagebox.showinfo("Battop", "Battop is already running. Look for its icon in the system tray.")
         return
 
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # Crisp text on high-DPI screens.
-    except (AttributeError, OSError):
-        pass
+    platform = platforms.current()
+    platform.init_process()
 
     log_queue = _setup_logging(args.debug)
-    engine = Engine(SettingsStore(), default_actions(), get_power_status, data_dir() / "state.json")
+    engine = Engine(SettingsStore(), platform.actions(), platform.power_status, data_dir() / "state.json")
     engine.start()
 
     tray = Tray(queue.Queue())
     tray.start()
 
     root = tk.Tk()
-    MainWindow(root, engine, log_queue, tray, start_hidden=args.startup and engine.settings.start_minimized)
+    MainWindow(root, engine, platform, log_queue, tray, start_hidden=args.startup and engine.settings.start_minimized)
     try:
         root.mainloop()
     finally:

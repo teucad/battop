@@ -7,7 +7,7 @@ import logging
 import os
 from ctypes import wintypes
 
-from .base import Action
+from battop.actions.base import Action
 
 log = logging.getLogger(__name__)
 

@@ -9,10 +9,10 @@ import tkinter as tk
 from dataclasses import replace
 from tkinter import messagebox, scrolledtext, ttk
 
-from . import __version__, autostart
-from .actions.app_efficiency import running_process_names
+from . import __version__
 from .config import Settings, data_dir, normalize_app_names
 from .engine import Engine
+from .platforms.base import Platform
 from .tray import Tray
 
 FONT = "Segoe UI"
@@ -60,8 +60,11 @@ def _format_duration(seconds: int) -> str:
 
 
 class MainWindow:
-    def __init__(self, root: tk.Tk, engine: Engine, log_queue: queue.Queue, tray: Tray, start_hidden: bool):
+    def __init__(
+        self, root: tk.Tk, engine: Engine, platform: Platform, log_queue: queue.Queue, tray: Tray, start_hidden: bool
+    ):
         self.root = root
+        self.platform = platform
         self.engine = engine
         self.log_queue = log_queue
         self.tray = tray
@@ -84,7 +87,8 @@ class MainWindow:
         notebook.pack(fill="both", expand=True, padx=14, pady=(14, 4))
         notebook.add(self._build_overview(notebook), text="Overview")
         notebook.add(self._build_power_page(notebook), text="Power saving")
-        notebook.add(self._build_apps_page(notebook), text="Apps")
+        if "app_efficiency" in platform.supported_keys:
+            notebook.add(self._build_apps_page(notebook), text="Apps")
         notebook.add(self._build_general_page(notebook), text="General")
         self.footer = ttk.Label(root, text="Changes are saved automatically.", style="Footer.TLabel")
         self.footer.pack(fill="x", padx=18, pady=(0, 10))
@@ -215,30 +219,35 @@ class MainWindow:
 
     def _build_power_page(self, notebook) -> ttk.Frame:
         page = self._page(notebook)
-        self._toggle_card(
-            page,
-            "power_mode_enabled",
-            "Use “Best power efficiency” mode",
-            "Switches Windows to its most efficient power mode. Your previous mode comes back when you plug in.",
-        )
-        self._slider_card(
-            page, "brightness_enabled", "brightness_percent", "Dim the screen to",
-            "The screen is only ever dimmed, never brightened. If you change the brightness "
-            "yourself while unplugged, Battop won't touch it when you plug back in.",
-            5, 100,
-        )
-        self._slider_card(
-            page, "cpu_limit_enabled", "cpu_max_percent", "Limit processor speed to",
-            "Lower values keep the laptop cooler and the battery going longer, "
-            "but apps may feel slower. 70-90% is a good balance.",
-            30, 100,
-        )
-        self._slider_card(
-            page, "battery_saver_enabled", "battery_saver_threshold", "Turn on battery saver at",
-            "Makes Windows' own battery saver kick in earlier. It reduces background activity "
-            "and notifications once your charge drops below this level.",
-            5, 100,
-        )
+        supported = self.platform.supported_keys
+        if "power_mode" in supported:
+            self._toggle_card(
+                page,
+                "power_mode_enabled",
+                "Use “Best power efficiency” mode",
+                "Switches Windows to its most efficient power mode. Your previous mode comes back when you plug in.",
+            )
+        if "brightness" in supported:
+            self._slider_card(
+                page, "brightness_enabled", "brightness_percent", "Dim the screen to",
+                "The screen is only ever dimmed, never brightened. If you change the brightness "
+                "yourself while unplugged, Battop won't touch it when you plug back in.",
+                5, 100,
+            )
+        if "cpu_limit" in supported:
+            self._slider_card(
+                page, "cpu_limit_enabled", "cpu_max_percent", "Limit processor speed to",
+                "Lower values keep the laptop cooler and the battery going longer, "
+                "but apps may feel slower. 70-90% is a good balance.",
+                30, 100,
+            )
+        if "battery_saver" in supported:
+            self._slider_card(
+                page, "battery_saver_enabled", "battery_saver_threshold", "Turn on battery saver at",
+                "Makes Windows' own battery saver kick in earlier. It reduces background activity "
+                "and notifications once your charge drops below this level.",
+                5, 100,
+            )
         return page
 
     def _build_apps_page(self, notebook) -> ttk.Frame:
@@ -255,7 +264,7 @@ class MainWindow:
         add_row = ttk.Frame(card, style="Card.TFrame")
         add_row.pack(fill="x")
         self.app_entry = ttk.Combobox(
-            add_row, postcommand=lambda: self.app_entry.configure(values=running_process_names())
+            add_row, postcommand=lambda: self.app_entry.configure(values=self.platform.running_app_names())
         )
         self.app_entry.pack(side="left", fill="x", expand=True)
         self.app_entry.bind("<Return>", lambda _: self._add_app())
@@ -275,7 +284,7 @@ class MainWindow:
         page = self._page(notebook)
         card = self._card(page)
         ttk.Label(card, text="Startup", style="Title.TLabel").pack(anchor="w", pady=(0, 6))
-        self.autostart_var = tk.BooleanVar(value=autostart.is_enabled())
+        self.autostart_var = tk.BooleanVar(value=self.platform.autostart_enabled())
         ttk.Checkbutton(
             card, text="Start Battop when I sign in to Windows", variable=self.autostart_var,
             style="Plain.TCheckbutton", command=self._toggle_autostart,
@@ -363,9 +372,9 @@ class MainWindow:
 
     def _toggle_autostart(self) -> None:
         try:
-            autostart.set_enabled(self.autostart_var.get())
+            self.platform.set_autostart(self.autostart_var.get())
         except OSError as exc:
-            self.autostart_var.set(autostart.is_enabled())
+            self.autostart_var.set(self.platform.autostart_enabled())
             messagebox.showerror("Battop", f"Couldn't change the startup setting:\n{exc}")
 
     def _reset(self) -> None:

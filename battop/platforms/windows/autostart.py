@@ -15,7 +15,7 @@ def launch_command() -> str:
         return f'"{sys.executable}" --startup'
     pythonw = Path(sys.executable).with_name("pythonw.exe")
     interpreter = pythonw if pythonw.exists() else Path(sys.executable)
-    script = Path(__file__).resolve().parent.parent / "battop.pyw"
+    script = Path(__file__).resolve().parents[3] / "battop.pyw"
     return f'"{interpreter}" "{script}" --startup'
 
 

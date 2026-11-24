@@ -7,7 +7,7 @@ from pathlib import Path
 from battop.actions.base import Action
 from battop.config import Settings, SettingsStore
 from battop.engine import Engine
-from battop.power import PowerStatus
+from battop.status import PowerStatus
 
 
 def status(on_battery: bool) -> PowerStatus:

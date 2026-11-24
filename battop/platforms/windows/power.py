@@ -5,7 +5,8 @@ from __future__ import annotations
 import ctypes
 import uuid
 from ctypes import wintypes
-from dataclasses import dataclass
+
+from ...status import PowerStatus
 
 _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 _powrprof = ctypes.WinDLL("powrprof")
@@ -53,16 +54,6 @@ class _SYSTEM_POWER_STATUS(ctypes.Structure):
         ("BatteryLifeTime", wintypes.DWORD),
         ("BatteryFullLifeTime", wintypes.DWORD),
     ]
-
-
-@dataclass(frozen=True)
-class PowerStatus:
-    on_battery: bool
-    has_battery: bool
-    percent: int | None
-    seconds_left: int | None
-    charging: bool
-    battery_saver_on: bool
 
 
 def get_power_status() -> PowerStatus:

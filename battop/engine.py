@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .actions.base import Action
 from .config import Settings, SettingsStore
-from .power import PowerStatus
+from .status import PowerStatus
 
 log = logging.getLogger(__name__)
 

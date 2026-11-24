@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import subprocess
 
-from .base import Action
+from battop.actions.base import Action
 
 log = logging.getLogger(__name__)
 
