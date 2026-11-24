@@ -16,6 +16,11 @@ _RANGES = {
     "brightness_percent": (5, 100),
     "cpu_max_percent": (30, 100),
     "battery_saver_threshold": (0, 100),
+    "screen_off_minutes": (1, 60),
+    "sleep_minutes": (1, 120),
+    "low_tier_threshold": (5, 50),
+    "low_brightness_percent": (5, 100),
+    "low_cpu_max_percent": (30, 100),
 }
 
 
@@ -40,8 +45,19 @@ class Settings:
     cpu_max_percent: int = 80
     battery_saver_enabled: bool = True
     battery_saver_threshold: int = 30
+    refresh_rate_enabled: bool = False
+    timeouts_enabled: bool = False
+    screen_off_minutes: int = 3
+    sleep_minutes: int = 10
+    bluetooth_enabled: bool = False
     app_efficiency_enabled: bool = False
     efficiency_apps: tuple[str, ...] = field(default_factory=tuple)
+
+    # Extra savings once the charge drops to `low_tier_threshold` (see `effective`).
+    low_tier_enabled: bool = True
+    low_tier_threshold: int = 20
+    low_brightness_percent: int = 20
+    low_cpu_max_percent: int = 60
 
     # Stay hidden in the tray when launched automatically at sign-in.
     start_minimized: bool = True
@@ -81,6 +97,23 @@ class Settings:
             else:
                 log.warning("Ignoring invalid value for %s: %r", f.name, value)
         return cls(**kwargs).normalized()
+
+
+def effective(settings: Settings, low: bool) -> Settings:
+    """The settings the actions should use right now.
+
+    While the battery is low, the screen is dimmed further and the processor limit is
+    forced on. Anything the user already set stricter is kept.
+    """
+    if not (low and settings.low_tier_enabled):
+        return settings
+    cpu_max = settings.cpu_max_percent if settings.cpu_limit_enabled else 100
+    return replace(
+        settings,
+        brightness_percent=min(settings.brightness_percent, settings.low_brightness_percent),
+        cpu_limit_enabled=True,
+        cpu_max_percent=min(cpu_max, settings.low_cpu_max_percent),
+    )
 
 
 def normalize_app_names(names) -> tuple[str, ...]:

@@ -11,8 +11,8 @@ from battop.engine import Engine
 from battop.status import PowerStatus
 
 
-def status(on_battery: bool) -> PowerStatus:
-    return PowerStatus(on_battery, True, 80, None, not on_battery, False)
+def status(on_battery: bool, percent: int = 80) -> PowerStatus:
+    return PowerStatus(on_battery, True, percent, None, not on_battery, False)
 
 
 class FakeAction(Action):
@@ -41,13 +41,14 @@ class EngineTests(unittest.TestCase):
         self.store = SettingsStore(tmp / "settings.json")
         self.state_path = tmp / "state.json"
         self.on_battery = False
+        self.percent = 80
         self.mode = FakeAction("mode", "power_mode_enabled")
         self.cpu = FakeAction("cpu", "cpu_limit_enabled")  # Disabled by default.
         self.engine = self.make_engine([self.mode, self.cpu])
 
     def make_engine(self, actions, on_event=None):
         return Engine(
-            self.store, actions, lambda: status(self.on_battery), self.state_path, on_event=on_event
+            self.store, actions, lambda: status(self.on_battery, self.percent), self.state_path, on_event=on_event
         )
 
     def test_unplugging_applies_and_plugging_in_restores(self):
@@ -133,6 +134,45 @@ class EngineTests(unittest.TestCase):
         while not self.engine.saving and time.monotonic() < deadline:
             time.sleep(0.01)
         self.assertTrue(self.engine.saving)
+
+    def test_low_battery_tier_reruns_only_affected_actions_with_hysteresis(self):
+        events = []
+        engine = self.make_engine([self.mode, self.cpu], on_event=events.append)
+        self.on_battery = True
+        engine.tick()
+        self.assertEqual((self.mode.calls, self.cpu.calls), (["apply"], []))
+
+        self.percent = 20  # Threshold is 20 by default; the tier forces the CPU limit on.
+        engine.tick()
+        self.assertEqual(self.cpu.calls, ["apply"])
+        self.assertEqual(self.mode.calls, ["apply"], "unrelated actions must not be re-run")
+        self.assertIn("low_tier", events)
+
+        self.percent = 22  # Inside the hysteresis band: still low.
+        engine.tick()
+        self.assertEqual(self.cpu.calls, ["apply"])
+
+        self.percent = 23  # Recovered (e.g. battery reading jumped).
+        engine.tick()
+        self.assertEqual(self.cpu.calls, ["apply", ("restore", 1)])
+
+    def test_low_tier_is_off_when_disabled_or_plugged_in(self):
+        engine = self.make_engine([self.cpu])
+        engine.submit_settings(replace(Settings(), low_tier_enabled=False))
+        self.on_battery, self.percent = True, 5
+        engine.tick()
+        self.assertEqual(self.cpu.calls, [])
+
+        engine.submit_settings(Settings())
+        self.on_battery = False
+        engine.tick()
+        self.assertEqual(self.cpu.calls, [])
+
+    def test_unplugging_while_already_low_applies_the_tier_at_once(self):
+        engine = self.make_engine([self.cpu])
+        self.on_battery, self.percent = True, 10
+        engine.tick()
+        self.assertEqual(self.cpu.calls, ["apply"])
 
 
 if __name__ == "__main__":

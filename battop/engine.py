@@ -9,7 +9,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from .actions.base import Action
-from .config import Settings, SettingsStore
+from .config import Settings, SettingsStore, effective
 from .status import PowerStatus
 
 log = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ class Engine:
         self._on_event = on_event
         self._active: dict[str, dict] = {}  # action key -> undo data
         self._saving = False
+        self._low = False  # Battery is low (see `config.effective`).
         self._lock = threading.RLock()
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -95,9 +96,11 @@ class Engine:
         status = self._status_provider()
         with self._lock:
             self.status = status
+            old = self._eff()
             if self._pending is not None:
-                old, self._settings, self._pending = self._settings, self._pending, None
-                self._reconcile(old, self._settings)
+                self._settings, self._pending = self._pending, None
+            self._update_low(status)
+            self._reconcile(old, self._eff())
             self._sync()
 
     # --- Internals ----------------------------------------------------------
@@ -111,6 +114,21 @@ class Engine:
             self._wake.wait(self._settings.poll_interval_sec)
             self._wake.clear()
 
+    def _eff(self) -> Settings:
+        return effective(self._settings, self._low)
+
+    def _update_low(self, status: PowerStatus) -> None:
+        s = self._settings
+        if not (status.on_battery and s.enabled and s.low_tier_enabled and status.percent is not None):
+            self._low = False
+            return
+        # A little hysteresis so the tier doesn't flap around the threshold.
+        was_low = self._low
+        self._low = status.percent <= s.low_tier_threshold or (was_low and status.percent < s.low_tier_threshold + 3)
+        if self._low and not was_low:
+            log.info("Battery is low (%d%%) - saving extra power", status.percent)
+            self._emit("low_tier")
+
     def _sync(self) -> None:
         status = self.status
         on_battery = bool(status and status.on_battery)
@@ -119,7 +137,7 @@ class Engine:
             pct = f" ({status.percent}%)" if status.percent is not None else ""
             log.info("Running on battery%s - battery saving is on", pct)
             for action in self._actions:
-                if action.enabled(self._settings):
+                if action.enabled(self._eff()):
                     self._apply(action)
             self._saving = True
             self._emit("saving_on")
@@ -143,7 +161,7 @@ class Engine:
 
     def _reconcile(self, old: Settings, new: Settings) -> None:
         """While saving, re-run only the actions whose settings changed."""
-        if not self._saving:
+        if not self._saving or old == new:
             return
         for action in self._actions:
             if all(getattr(old, k) == getattr(new, k) for k in action.settings_keys):
@@ -155,7 +173,7 @@ class Engine:
 
     def _apply(self, action: Action) -> None:
         try:
-            saved = action.apply(self._settings)
+            saved = action.apply(self._eff())
         except Exception as exc:
             log.warning("%s: couldn't apply (%s)", action.title, exc)
             return
@@ -181,7 +199,7 @@ class Engine:
     def _refresh_all(self) -> None:
         for key, saved in list(self._active.items()):
             try:
-                updated = self._by_key[key].refresh(self._settings, saved)
+                updated = self._by_key[key].refresh(self._eff(), saved)
             except Exception as exc:
                 log.warning("%s: refresh failed (%s)", self._by_key[key].title, exc)
                 continue
