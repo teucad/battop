@@ -6,7 +6,7 @@ import tkinter as tk
 import unittest
 from pathlib import Path
 
-from battop import theme
+from battop import i18n, theme
 from battop.config import Settings, SettingsStore
 from battop.engine import Engine
 from battop.gui import MainWindow
@@ -21,6 +21,9 @@ class FakePlatform:
 
     def system_theme(self):
         return "dark"
+
+    def system_language(self):
+        return "en"
 
     def unavailable_reason(self, key):
         return None
@@ -51,6 +54,7 @@ class GuiTests(unittest.TestCase):
             SettingsStore(Path(tmp.name) / "s.json"), [], lambda: PowerStatus(False, True, 80, None, False, False)
         )
         self.window = MainWindow(self.root, self.engine, FakePlatform(), queue.Queue(), Tray(queue.Queue()), True)
+        self.addCleanup(self.window._cancel_timers)  # Runs before the window is destroyed.
 
     def test_follows_the_system_theme_by_default_and_can_be_forced(self):
         self.assertEqual(COLORS["bg"], theme.DARK["bg"])  # FakePlatform reports a dark system theme.
@@ -76,6 +80,43 @@ class GuiTests(unittest.TestCase):
         defaults = Settings()
         for key in self.window.vars:
             self.assertEqual(getattr(collected, key), getattr(defaults, key), key)
+
+    def test_switching_language_rebuilds_the_window_and_keeps_values(self):
+        self.addCleanup(i18n.set_language, "en")
+        self.window.vars["brightness_percent"].set(55)
+        self.window.vars["brightness_enabled"].set(True)
+        tabs_before = len(self.window.notebook.tabs())
+        self.window.notebook.select(1)
+        self.window.language_var.set("Türkçe")
+        self.window.apply_language("tr")
+        self.root.update()
+        self.assertEqual(i18n.current_language(), "tr")
+        self.assertEqual(len(self.window.notebook.tabs()), tabs_before)
+        self.assertEqual(self.window.notebook.index("current"), 1)
+        self.assertEqual(self.window.notebook.tab(0, "text"), "Genel Bakış")
+        self.assertEqual(self.window.vars["brightness_percent"].get(), 55)
+        self.assertEqual(self.window.theme_var.get(), self.window._theme_names()["system"])
+        collected = self.window._collect()
+        self.assertEqual((collected.language, collected.theme), ("tr", "system"))
+        # Changing a value afterwards must not poke widgets that were destroyed by the rebuild.
+        self.window.vars["brightness_enabled"].set(False)
+        self.window.vars["brightness_percent"].set(30)
+        self.root.update()
+
+    def test_activity_history_survives_a_language_switch(self):
+        self.addCleanup(i18n.set_language, "en")
+        self.window.log_queue.put("12:00   Something happened")
+        self.window._drain_log()
+        self.window.apply_language("tr")
+        self.assertIn("Something happened", self.window.activity.get("1.0", "end"))
+
+    def test_switching_back_to_english_works_too(self):
+        self.addCleanup(i18n.set_language, "en")
+        self.window.apply_language("tr")
+        self.window.language_var.set("English")
+        self.window.apply_language("en")
+        self.assertEqual(self.window.notebook.tab(0, "text"), "Overview")
+        self.assertEqual(self.window._collect().language, "en")
 
     def test_unsupported_cards_are_not_built(self):
         tabs = [self.window.root.nametowidget(t) for t in self.root.winfo_children()[0].tabs()]

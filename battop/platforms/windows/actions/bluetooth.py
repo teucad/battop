@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from battop.actions.base import Action
+from battop.i18n import _, N_
 
 from .. import ps
 
@@ -66,7 +67,7 @@ def set_state(on: bool) -> None:
 
 class BluetoothAction(Action):
     key = "bluetooth"
-    title = "Bluetooth off"
+    title = N_("Bluetooth off")
     settings_keys = ("bluetooth_enabled",)
 
     def apply(self, settings):
@@ -74,14 +75,14 @@ class BluetoothAction(Action):
         if status is None or status[0] != "on":
             return None
         if status[1] > 0:
-            log.info("Bluetooth left on because %d device(s) are connected", status[1])
+            log.info(_("Bluetooth left on because %d device(s) are connected"), status[1])
             return None
         set_state(False)
-        log.info("Bluetooth turned off (nothing was connected)")
+        log.info(_("Bluetooth turned off (nothing was connected)"))
         return {"was_on": True}
 
     def restore(self, saved):
         status = read_status()
         if status is not None and status[0] == "off":
             set_state(True)
-            log.info("Bluetooth turned back on")
+            log.info(_("Bluetooth turned back on"))

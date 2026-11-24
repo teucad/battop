@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable
 
 from battop.actions.base import Action
+from battop.i18n import _, N_
 from battop.status import PowerStatus
 
 from .. import anime, processes
@@ -20,7 +21,7 @@ class AnimeBatteryAction(Action):
     """
 
     key = "anime_battery"
-    title = "Battery level on the AniMe Matrix"
+    title = N_("Battery level on the AniMe Matrix")
     settings_keys = ("anime_battery_enabled", "anime_brightness")
     # G-Helper repaints its own picture a few seconds after the power source changes.
     refresh_every_sec = 3
@@ -36,11 +37,11 @@ class AnimeBatteryAction(Action):
     def apply(self, settings):
         conflict = anime.ghelper_conflict()
         if conflict:
-            log.info("AniMe Matrix: %s", conflict)
+            log.info(_("AniMe Matrix: %s"), conflict)
         with anime.AnimeMatrix.open() as matrix:
             matrix.start(settings.anime_brightness)
             matrix.show_battery(self._percent())
-        log.info("Showing the battery level on the AniMe Matrix")
+        log.info(_("Showing the battery level on the AniMe Matrix"))
         return {"ghelper_was_running": processes.is_running("ghelper.exe")}
 
     def refresh(self, settings, saved):
@@ -50,7 +51,7 @@ class AnimeBatteryAction(Action):
             self._failing = False
         except OSError as exc:  # Don't flood the log if the device is busy or unplugged.
             if not self._failing:
-                log.warning("AniMe Matrix: couldn't update (%s)", exc)
+                log.warning(_("AniMe Matrix: couldn't update (%s)"), exc)
             self._failing = True
         return saved
 
@@ -59,11 +60,11 @@ class AnimeBatteryAction(Action):
         # only after a plug-in. Pausing or quitting while still unplugged would leave a stale
         # charge level on the lid, so blank it instead.
         if not self._power_status().on_battery and processes.is_running("ghelper.exe"):
-            log.info("Handing the AniMe Matrix back to G-Helper")
+            log.info(_("Handing the AniMe Matrix back to G-Helper"))
             return
         with anime.AnimeMatrix.open() as matrix:
             matrix.clear()
         if self._power_status().on_battery:
-            log.info("AniMe Matrix cleared (G-Helper redraws it next time you plug in)")
+            log.info(_("AniMe Matrix cleared (G-Helper redraws it next time you plug in)"))
         else:
-            log.info("AniMe Matrix cleared (G-Helper isn't running to restore it)")
+            log.info(_("AniMe Matrix cleared (G-Helper isn't running to restore it)"))

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from battop.actions.base import Action
+from battop.i18n import _, N_
 
 from .. import power
 
@@ -33,20 +34,20 @@ class _DcValueAction(Action):
                 continue
             power.write_dc_value(scheme, subgroup, setting, target)
             previous[setting] = [subgroup, current]
-            log.info("%s: %d%s -> %d%s", self.label, current, self.unit, target, self.unit)
+            log.info(_("%s: %d%s -> %d%s"), _(self.label), current, self.unit, target, self.unit)
         return {"scheme": scheme, "previous": previous} if previous else None
 
     def restore(self, saved):
         for setting, (subgroup, value) in saved["previous"].items():
             power.write_dc_value(saved["scheme"], subgroup, setting, value)
-            log.info("%s restored to %d%s", self.label, value, self.unit)
+            log.info(_("%s restored to %d%s"), _(self.label), value, self.unit)
 
 
 class CpuLimitAction(_DcValueAction):
     key = "cpu_limit"
-    title = "Limited processor speed"
+    title = N_("Limited processor speed")
     settings_keys = ("cpu_limit_enabled", "cpu_max_percent")
-    label = "Maximum processor speed"
+    label = N_("Maximum processor speed")
 
     def entries(self, settings):
         return [(power.SUB_PROCESSOR, power.PROCESSOR_MAX_STATE, settings.cpu_max_percent)]
@@ -57,9 +58,9 @@ class CpuLimitAction(_DcValueAction):
 
 class BatterySaverAction(_DcValueAction):
     key = "battery_saver"
-    title = "Earlier Windows battery saver"
+    title = N_("Earlier Windows battery saver")
     settings_keys = ("battery_saver_enabled", "battery_saver_threshold")
-    label = "Battery saver turns on at"
+    label = N_("Battery saver turns on at")
 
     def entries(self, settings):
         return [(power.SUB_ENERGY_SAVER, power.ENERGY_SAVER_THRESHOLD, settings.battery_saver_threshold)]
@@ -70,9 +71,9 @@ class BatterySaverAction(_DcValueAction):
 
 class TimeoutsAction(_DcValueAction):
     key = "timeouts"
-    title = "Shorter screen-off and sleep times"
+    title = N_("Shorter screen-off and sleep times")
     settings_keys = ("timeouts_enabled", "screen_off_minutes", "sleep_minutes")
-    label = "Idle timeout"
+    label = N_("Idle timeout")
     unit = " s"
 
     def entries(self, settings):

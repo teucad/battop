@@ -13,6 +13,8 @@ from tkinter import messagebox, ttk
 from PIL import Image, ImageTk
 
 from . import __version__, theme
+from . import i18n
+from .i18n import N_, _
 from .config import Settings, data_dir, normalize_app_names
 from .engine import Engine
 from .gui_theme import COLORS, ThemeManager
@@ -49,7 +51,8 @@ _NUMBER_KEYS = (
     "anime_brightness",
     "poll_interval_sec",
 )
-_THEME_CHOICES = (("system", "Follow system"), ("light", "Light"), ("dark", "Dark"))
+_THEME_CHOICES = (("system", N_("Follow system")), ("light", N_("Light")), ("dark", N_("Dark")))
+_LANGUAGE_CHOICES = ("system", "en", "tr")
 _SAVE_DELAY_MS = 600
 _POLL_MS = 500
 _MAX_LOG_LINES = 300
@@ -69,7 +72,9 @@ class QueueLogHandler(logging.Handler):
 
 def _format_duration(seconds: int) -> str:
     hours, minutes = divmod(seconds // 60, 60)
-    return f"{hours} h {minutes} min" if hours else f"{minutes} min"
+    if hours:
+        return _("{h} h {m} min").format(h=hours, m=minutes)
+    return _("{m} min").format(m=minutes)
 
 
 class MainWindow:
@@ -82,17 +87,19 @@ class MainWindow:
         self.log_queue = log_queue
         self.tray = tray
         self._save_job: str | None = None
+        self._poll_job: str | None = None
+        self._log_lines: list[str] = []  # Activity history, re-shown after the window is rebuilt.
         self._loading = False
         self._told_about_tray = False
         self._uninstalled = False
         self._refreshers: list = []
+        self._traces: list = []  # (variable, trace id) added by cards, removed on rebuild.
         self.app_list: tk.Listbox | None = None  # Only exists on platforms with per-app efficiency mode.
 
         global FONT
         self.theme = ThemeManager(root)
         FONT = self.theme.font
         scale = root.winfo_fpixels("1i") / 96
-        root.title("Battop - Battery Saver")
         root.geometry(f"{int(640 * scale)}x{int(660 * scale)}")
         root.minsize(int(580 * scale), int(560 * scale))
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -104,28 +111,65 @@ class MainWindow:
         for key in ("anime_brightness", "poll_interval_sec"):
             self.vars[key] = tk.IntVar()  # Radio buttons and spinboxes need exact integers.
         self.theme_var = tk.StringVar()
+        self.language_var = tk.StringVar()
 
-        notebook = ttk.Notebook(root)
-        notebook.pack(fill="both", expand=True, padx=14, pady=(14, 4))
-        notebook.enable_traversal()  # Ctrl+Tab / Ctrl+Shift+Tab switch tabs.
-        notebook.add(self._build_overview(notebook), text="Overview")
-        notebook.add(self._build_power_page(notebook), text="Power saving")
-        if platform.supported_keys & {"refresh_rate", "timeouts", "bluetooth", "anime_battery"}:
-            notebook.add(self._build_extras_page(notebook), text="Extras")
-        notebook.add(self._build_low_battery_page(notebook), text="Low battery")
-        if "app_efficiency" in platform.supported_keys:
-            notebook.add(self._build_apps_page(notebook), text="Apps")
-        notebook.add(self._build_general_page(notebook), text="General")
-        self.footer = ttk.Label(root, text="Changes are saved automatically.", style="Footer.TLabel")
-        self.footer.pack(fill="x", padx=18, pady=(0, 10))
-
+        self._build_ui()
         self._load(engine.settings)
-        for var in (*self.vars.values(), self.theme_var):
+        for var in (*self.vars.values(), self.theme_var, self.language_var):
             var.trace_add("write", self._schedule_save)
 
         if start_hidden and tray.available:
             root.withdraw()
         self._poll()
+
+    def _build_ui(self) -> None:
+        root, platform = self.root, self.platform
+        root.title(_("Battop - Battery Saver"))
+        self.notebook = notebook = ttk.Notebook(root)
+        notebook.pack(fill="both", expand=True, padx=14, pady=(14, 4))
+        notebook.enable_traversal()  # Ctrl+Tab / Ctrl+Shift+Tab switch tabs.
+        notebook.add(self._build_overview(notebook), text=_("Overview"))
+        notebook.add(self._build_power_page(notebook), text=_("Power saving"))
+        if platform.supported_keys & {"refresh_rate", "timeouts", "bluetooth", "anime_battery"}:
+            notebook.add(self._build_extras_page(notebook), text=_("Extras"))
+        notebook.add(self._build_low_battery_page(notebook), text=_("Low battery"))
+        if "app_efficiency" in platform.supported_keys:
+            notebook.add(self._build_apps_page(notebook), text=_("Apps"))
+        notebook.add(self._build_general_page(notebook), text=_("General"))
+        self.footer = ttk.Label(root, text=_("Changes are saved automatically."), style="Footer.TLabel")
+        self.footer.pack(fill="x", padx=18, pady=(0, 10))
+        if self._log_lines:  # Rebuilding after a language change: bring the history back.
+            self.activity.configure(state="normal")
+            self.activity.insert("end", "\n".join(self._log_lines) + "\n")
+            self.activity.see("end")
+            self.activity.configure(state="disabled")
+
+    def apply_language(self, setting: str) -> None:
+        """Switch language and rebuild the window, keeping every value and the selected tab."""
+        current = self._collect()  # Read the widgets before they are replaced.
+        selected = self.notebook.index("current")
+        i18n.set_language(i18n.resolve(setting, self.platform.system_language()))
+        for var, trace_id in self._traces:
+            var.trace_remove("write", trace_id)
+        self._traces.clear()
+        self._refreshers.clear()
+        self.app_list = None
+        self.notebook.destroy()
+        self.footer.destroy()
+        self._build_ui()
+        self._load(current)
+        self.notebook.select(min(selected, len(self.notebook.tabs()) - 1))
+        self.tray.retranslate()
+        self._update_status()
+
+    def _trace(self, var: tk.Variable, callback) -> None:
+        self._traces.append((var, var.trace_add("write", callback)))
+
+    def _theme_names(self) -> dict[str, str]:
+        return {key: _(label) for key, label in _THEME_CHOICES}
+
+    def _language_names(self) -> dict[str, str]:
+        return {"system": _("Follow system"), **i18n.LANGUAGE_NAMES}
 
     # --- Layout helpers -----------------------------------------------------
 
@@ -177,7 +221,7 @@ class MainWindow:
             check.state(["disabled"])
             if sys.platform == "win32":
                 ttk.Button(
-                    card, text="Open power settings", command=lambda: os.startfile("ms-settings:powersleep")
+                    card, text=_("Open power settings"), command=lambda: os.startfile("ms-settings:powersleep")
                 ).pack(anchor="w", pady=(8, 0))
         return card
 
@@ -228,9 +272,9 @@ class MainWindow:
                 slider.state(["!disabled"] if on else ["disabled"])
 
         self._refreshers.append(refresh)
-        toggle.trace_add("write", refresh)
-        for value, *_ in widgets:
-            value.trace_add("write", refresh)
+        self._trace(toggle, refresh)
+        for value, *rest in widgets:
+            self._trace(value, refresh)
         refresh()
 
     # --- Pages ----------------------------------------------------------------
@@ -248,7 +292,7 @@ class MainWindow:
         info.pack(side="left", fill="x", expand=True)
         self.percent_label = ttk.Label(info, text="--", style="Big.TLabel")
         self.percent_label.pack(anchor="w")
-        self.status_label = ttk.Label(info, text="Checking your battery...", style="Card.TLabel")
+        self.status_label = ttk.Label(info, text=_("Checking your battery..."), style="Card.TLabel")
         self.status_label.pack(anchor="w")
         self.pill = tk.Label(card, font=(FONT, 9, "bold"), padx=10, pady=3)
         self.pill.pack(anchor="w", pady=(12, 0))
@@ -257,13 +301,13 @@ class MainWindow:
         self._toggle_card(
             page,
             "enabled",
-            "Save battery automatically when unplugged",
-            "Battop applies the changes you pick under “Power saving” and “Apps” "
-            "whenever you unplug, and undoes them as soon as you plug back in.",
+            _("Save battery automatically when unplugged"),
+            _("Battop applies the changes you pick under “Power saving” and “Apps” "
+            "whenever you unplug, and undoes them as soon as you plug back in."),
         )
 
         card = self._card(page, expand=True)
-        ttk.Label(card, text="Recent activity", style="Title.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(card, text=_("Recent activity"), style="Title.TLabel").pack(anchor="w", pady=(0, 6))
         log_frame = ttk.Frame(card, style="Card.TFrame")
         log_frame.pack(fill="both", expand=True)
         self.activity = tk.Text(
@@ -284,29 +328,29 @@ class MainWindow:
             self._toggle_card(
                 page,
                 "power_mode_enabled",
-                "Use “Best power efficiency” mode",
-                "Switches Windows to its most efficient power mode. Your previous mode comes back when you plug in.",
+                _("Use “Best power efficiency” mode"),
+                _("Switches Windows to its most efficient power mode. Your previous mode comes back when you plug in."),
                 unavailable=self.platform.unavailable_reason("power_mode"),
             )
         if "brightness" in supported:
             self._slider_card(
-                page, "brightness_enabled", "brightness_percent", "Dim the screen to",
-                "The screen is only ever dimmed, never brightened. If you change the brightness "
-                "yourself while unplugged, Battop won't touch it when you plug back in.",
+                page, "brightness_enabled", "brightness_percent", _("Dim the screen to"),
+                _("The screen is only ever dimmed, never brightened. If you change the brightness "
+                "yourself while unplugged, Battop won't touch it when you plug back in."),
                 5, 100,
             )
         if "cpu_limit" in supported:
             self._slider_card(
-                page, "cpu_limit_enabled", "cpu_max_percent", "Limit processor speed to",
-                "Lower values keep the laptop cooler and the battery going longer, "
-                "but apps may feel slower. 70-90% is a good balance.",
+                page, "cpu_limit_enabled", "cpu_max_percent", _("Limit processor speed to"),
+                _("Lower values keep the laptop cooler and the battery going longer, "
+                "but apps may feel slower. 70-90% is a good balance."),
                 30, 100,
             )
         if "battery_saver" in supported:
             self._slider_card(
-                page, "battery_saver_enabled", "battery_saver_threshold", "Turn on battery saver at",
-                "Makes Windows' own battery saver kick in earlier. It reduces background activity "
-                "and notifications once your charge drops below this level.",
+                page, "battery_saver_enabled", "battery_saver_threshold", _("Turn on battery saver at"),
+                _("Makes Windows' own battery saver kick in earlier. It reduces background activity "
+                "and notifications once your charge drops below this level."),
                 5, 100,
             )
         return page
@@ -318,26 +362,26 @@ class MainWindow:
             self._toggle_card(
                 page,
                 "refresh_rate_enabled",
-                "Lower the screen refresh rate",
-                "Switches to the lowest smooth rate (60 Hz or more). High-refresh screens use noticeably more "
-                "power; motion looks a little less fluid. Your normal rate returns when you plug in.",
+                _("Lower the screen refresh rate"),
+                _("Switches to the lowest smooth rate (60 Hz or more). High-refresh screens use noticeably more "
+                "power; motion looks a little less fluid. Your normal rate returns when you plug in."),
             )
         if "timeouts" in supported:
             self._sliders_card(
-                page, "timeouts_enabled", "Turn off the screen and sleep sooner",
-                "Only ever shortens your Windows battery timeouts, never lengthens them.",
+                page, "timeouts_enabled", _("Turn off the screen and sleep sooner"),
+                _("Only ever shortens your Windows battery timeouts, never lengthens them."),
                 [
-                    ("screen_off_minutes", "Turn off screen after", 1, 30, " min", 1),
-                    ("sleep_minutes", "Sleep after", 1, 60, " min", 1),
+                    ("screen_off_minutes", _("Turn off screen after"), 1, 30, _(" min"), 1),
+                    ("sleep_minutes", _("Sleep after"), 1, 60, _(" min"), 1),
                 ],
             )
         if "bluetooth" in supported:
             self._toggle_card(
                 page,
                 "bluetooth_enabled",
-                "Turn Bluetooth off when nothing is connected",
-                "If a mouse, headset or other device is connected, Bluetooth is left on. "
-                "It is switched back on when you plug in.",
+                _("Turn Bluetooth off when nothing is connected"),
+                _("If a mouse, headset or other device is connected, Bluetooth is left on. "
+                "It is switched back on when you plug in."),
             )
         if "anime_battery" in supported:
             self._build_anime_card(page)
@@ -347,14 +391,14 @@ class MainWindow:
         card = self._toggle_card(
             page,
             "anime_battery_enabled",
-            "Show the battery level on the AniMe Matrix",
-            "While unplugged, the lid display shows a battery icon and your charge. When you plug in, "
-            "G-Helper takes the display back and shows whatever you had before.",
+            _("Show the battery level on the AniMe Matrix"),
+            _("While unplugged, the lid display shows a battery icon and your charge. When you plug in, "
+            "G-Helper takes the display back and shows whatever you had before."),
         )
         row = ttk.Frame(card, style="Card.TFrame")
         row.pack(fill="x", pady=(8, 0))
-        ttk.Label(row, text="Brightness", style="Card.TLabel").pack(side="left", padx=(0, 12))
-        for level, name in ((1, "Dim"), (2, "Medium"), (3, "Full")):
+        ttk.Label(row, text=_("Brightness"), style="Card.TLabel").pack(side="left", padx=(0, 12))
+        for level, name in ((1, _("Dim")), (2, _("Medium")), (3, _("Full"))):
             ttk.Radiobutton(
                 row, text=name, value=level, variable=self.vars["anime_brightness"], style="Plain.TRadiobutton"
             ).pack(side="left", padx=(0, 10))
@@ -367,14 +411,14 @@ class MainWindow:
     def _build_low_battery_page(self, notebook) -> ttk.Frame:
         page = self._page(notebook)
         self._sliders_card(
-            page, "low_tier_enabled", "Save extra power when the battery is low",
-            "Once the charge drops to the level below, Battop dims the screen further and limits the "
+            page, "low_tier_enabled", _("Save extra power when the battery is low"),
+            _("Once the charge drops to the level below, Battop dims the screen further and limits the "
             "processor, even if those options are off above. It backs off again once the charge "
-            "recovers a little. Stricter settings you chose elsewhere are kept.",
+            "recovers a little. Stricter settings you chose elsewhere are kept."),
             [
-                ("low_tier_threshold", "When the charge is at or below", 5, 50, "%", 5),
-                ("low_brightness_percent", "Dim the screen to", 5, 100, "%", 5),
-                ("low_cpu_max_percent", "Limit processor speed to", 30, 100, "%", 5),
+                ("low_tier_threshold", _("When the charge is at or below"), 5, 50, "%", 5),
+                ("low_brightness_percent", _("Dim the screen to"), 5, 100, "%", 5),
+                ("low_cpu_max_percent", _("Limit processor speed to"), 30, 100, "%", 5),
             ],
         )
         return page
@@ -384,10 +428,10 @@ class MainWindow:
         self._toggle_card(
             page,
             "app_efficiency_enabled",
-            "Put these apps in efficiency mode",
-            "Efficiency mode (the same one Task Manager uses) gives an app lower priority and lets "
+            _("Put these apps in efficiency mode"),
+            _("Efficiency mode (the same one Task Manager uses) gives an app lower priority and lets "
             "Windows run it on power-saving settings. Good candidates: chat apps, game launchers, "
-            "cloud sync and updaters.",
+            "cloud sync and updaters."),
         )
         card = self._card(page, expand=True)
         add_row = ttk.Frame(card, style="Card.TFrame")
@@ -397,8 +441,8 @@ class MainWindow:
         )
         self.app_entry.pack(side="left", fill="x", expand=True)
         self.app_entry.bind("<Return>", lambda _: self._add_app())
-        ttk.Button(add_row, text="Add", command=self._add_app).pack(side="left", padx=(8, 0))
-        self._description(card, "Type an app name (e.g. discord.exe) or pick one that's running from the list.")
+        ttk.Button(add_row, text=_("Add"), command=self._add_app).pack(side="left", padx=(8, 0))
+        self._description(card, _("Type an app name (e.g. discord.exe) or pick one that's running from the list."))
 
         self.app_list = tk.Listbox(
             card, height=6, relief="flat", font=(FONT, 10), activestyle="none", highlightthickness=0,
@@ -409,58 +453,70 @@ class MainWindow:
         )
         self.app_list.pack(fill="both", expand=True, pady=(10, 8))
         self.app_list.bind("<Delete>", lambda _: self._remove_apps())
-        ttk.Button(card, text="Remove selected", command=self._remove_apps).pack(anchor="e")
+        ttk.Button(card, text=_("Remove selected"), command=self._remove_apps).pack(anchor="e")
         return page
 
     def _build_general_page(self, notebook) -> ttk.Frame:
         page = self._page(notebook)
         card = self._card(page)
-        ttk.Label(card, text="Startup", style="Title.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(card, text=_("Startup"), style="Title.TLabel").pack(anchor="w", pady=(0, 6))
         self.autostart_var = tk.BooleanVar(value=self.platform.autostart_enabled())
         ttk.Checkbutton(
-            card, text="Start Battop when I sign in to Windows", variable=self.autostart_var,
+            card, text=_("Start Battop when I sign in to Windows"), variable=self.autostart_var,
             style="Plain.TCheckbutton", command=self._toggle_autostart,
         ).pack(anchor="w")
         minimized = ttk.Checkbutton(
-            card, text="When starting with Windows, stay hidden in the system tray", variable=self.vars["start_minimized"],
+            card, text=_("When starting with Windows, stay hidden in the system tray"), variable=self.vars["start_minimized"],
             style="Plain.TCheckbutton",
         )
         minimized.pack(anchor="w", pady=(4, 0))
         if not self.tray.available:
             minimized.state(["disabled"])
-            self._description(card, "Tray icon unavailable: install it with “pip install pystray Pillow”.")
+            self._description(card, _("Tray icon unavailable: install it with “pip install pystray Pillow”."))
 
         card = self._card(page)
-        ttk.Label(card, text="Appearance and behaviour", style="Title.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(card, text=_("Appearance and behaviour"), style="Title.TLabel").pack(anchor="w", pady=(0, 6))
         row = ttk.Frame(card, style="Card.TFrame")
         row.pack(fill="x")
-        ttk.Label(row, text="Theme", style="Card.TLabel").pack(side="left", padx=(0, 10))
+        ttk.Label(row, text=_("Theme"), style="Card.TLabel", width=10).pack(side="left", padx=(0, 10))
         self.theme_box = ttk.Combobox(
-            row, textvariable=self.theme_var, state="readonly", width=14, values=[name for _, name in _THEME_CHOICES]
+            row, textvariable=self.theme_var, state="readonly", width=14, values=list(self._theme_names().values())
         )
         self.theme_box.pack(side="left")
-        self.theme_box.bind("<<ComboboxSelected>>", lambda _: self.apply_theme(self._theme_setting()))
+        self.theme_box.bind("<<ComboboxSelected>>", lambda event: self.apply_theme(self._theme_setting()))
         row = ttk.Frame(card, style="Card.TFrame")
         row.pack(fill="x", pady=(8, 0))
-        ttk.Label(row, text="Check the power status at least every", style="Card.TLabel").pack(side="left")
+        ttk.Label(row, text=_("Language"), style="Card.TLabel", width=10).pack(side="left", padx=(0, 10))
+        self.language_box = ttk.Combobox(
+            row, textvariable=self.language_var, state="readonly", width=14, values=list(self._language_names().values())
+        )
+        self.language_box.pack(side="left")
+        # Rebuild after the combobox has finished handling its own event.
+        self.language_box.bind(
+            "<<ComboboxSelected>>",
+            lambda event: self.root.after_idle(self.apply_language, self._language_setting()),
+        )
+        row = ttk.Frame(card, style="Card.TFrame")
+        row.pack(fill="x", pady=(8, 0))
+        ttk.Label(row, text=_("Check the power status at least every"), style="Card.TLabel").pack(side="left")
         ttk.Spinbox(row, from_=5, to=300, increment=5, width=5, textvariable=self.vars["poll_interval_sec"]).pack(
             side="left", padx=8
         )
-        ttk.Label(row, text="seconds", style="Card.TLabel").pack(side="left")
+        ttk.Label(row, text=_("seconds"), style="Card.TLabel").pack(side="left")
         ttk.Checkbutton(
-            card, text="Show a notification when saving turns on or off", variable=self.vars["notifications"],
+            card, text=_("Show a notification when saving turns on or off"), variable=self.vars["notifications"],
             style="Plain.TCheckbutton",
         ).pack(anchor="w", pady=(8, 0))
 
         card = self._card(page)
-        ttk.Label(card, text="Settings", style="Title.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(card, text=_("Settings"), style="Title.TLabel").pack(anchor="w", pady=(0, 6))
         buttons = ttk.Frame(card, style="Card.TFrame")
         buttons.pack(fill="x")
-        ttk.Button(buttons, text="Reset to defaults", command=self._reset).pack(side="left")
-        ttk.Button(buttons, text="Open data folder", command=lambda: os.startfile(data_dir())).pack(
+        ttk.Button(buttons, text=_("Reset to defaults"), command=self._reset).pack(side="left")
+        ttk.Button(buttons, text=_("Open data folder"), command=lambda: os.startfile(data_dir())).pack(
             side="left", padx=(8, 0)
         )
-        ttk.Button(buttons, text="Remove Battop from this PC\u2026", command=self._uninstall).pack(
+        ttk.Button(buttons, text=_("Remove Battop from this PC\u2026"), command=self._uninstall).pack(
             side="left", padx=(8, 0)
         )
 
@@ -468,8 +524,8 @@ class MainWindow:
         ttk.Label(card, text=f"Battop {__version__}", style="Title.TLabel").pack(anchor="w")
         self._description(
             card,
-            "Every change Battop makes is undone when you plug in or quit. If the PC shuts down "
-            "while unplugged, the changes are undone the next time Battop starts.",
+            _("Every change Battop makes is undone when you plug in or quit. If the PC shuts down "
+            "while unplugged, the changes are undone the next time Battop starts."),
         )
         return page
 
@@ -480,7 +536,8 @@ class MainWindow:
         try:
             for key, var in self.vars.items():
                 var.set(getattr(settings, key))
-            self.theme_var.set(dict(_THEME_CHOICES)[settings.theme])
+            self.theme_var.set(self._theme_names()[settings.theme])
+            self.language_var.set(self._language_names()[settings.language])
             if self.app_list is not None:
                 self.app_list.delete(0, "end")
                 for name in settings.efficiency_apps:
@@ -502,11 +559,16 @@ class MainWindow:
         if self.app_list is not None:
             values["efficiency_apps"] = tuple(self.app_list.get(0, "end"))
         values["theme"] = self._theme_setting()
+        values["language"] = self._language_setting()
         return replace(self.engine.settings, **values)
 
     def _theme_setting(self) -> str:
-        by_name = {name: key for key, name in _THEME_CHOICES}
+        by_name = {name: key for key, name in self._theme_names().items()}
         return by_name.get(self.theme_var.get(), "system")
+
+    def _language_setting(self) -> str:
+        by_name = {name: key for key, name in self._language_names().items()}
+        return by_name.get(self.language_var.get(), "system")
 
     def _schedule_save(self, *_):
         if self._loading:
@@ -522,11 +584,11 @@ class MainWindow:
         try:
             self.engine.submit_settings(self._collect())
         except OSError as exc:
-            self.footer.configure(text=f"Couldn't save settings: {exc}", foreground=COLORS["danger"])
+            self.footer.configure(text=_("Couldn't save settings: {error}").format(error=exc), foreground=COLORS["danger"])
             return
-        self.footer.configure(text="✓ Saved", foreground=COLORS["accent"])
+        self.footer.configure(text=_("✓ Saved"), foreground=COLORS["accent"])
         self.root.after(
-            2000, lambda: self.footer.configure(text="Changes are saved automatically.", foreground=COLORS["muted"])
+            2000, lambda: self.footer.configure(text=_("Changes are saved automatically."), foreground=COLORS["muted"])
         )
 
     def _add_app(self) -> None:
@@ -548,33 +610,31 @@ class MainWindow:
             self.platform.set_autostart(self.autostart_var.get())
         except OSError as exc:
             self.autostart_var.set(self.platform.autostart_enabled())
-            messagebox.showerror("Battop", f"Couldn't change the startup setting:\n{exc}")
+            messagebox.showerror(_("Battop"), _("Couldn't change the startup setting:") + f"\n{exc}")
 
     def _reset(self) -> None:
-        if messagebox.askyesno("Battop", "Reset all settings to their defaults?"):
+        if messagebox.askyesno(_("Battop"), _("Reset all settings to their defaults?")):
             self._load(Settings())
             self._schedule_save()
 
     def _uninstall(self) -> None:
         if not messagebox.askyesno(
-            "Battop",
-            "Remove Battop from this PC?\n\nThis restores your normal settings, stops Battop starting with "
+            _("Battop"),
+            _("Remove Battop from this PC?\n\nThis restores your normal settings, stops Battop starting with "
             "Windows, deletes its settings and logs, and closes Battop. The Battop program files stay where "
-            "they are, so you can delete that folder afterwards.",
+            "they are, so you can delete that folder afterwards."),
             icon="warning",
         ):
             return
-        if self._save_job:
-            self.root.after_cancel(self._save_job)
-            self._save_job = None
+        self._cancel_timers()
         self._uninstalled = True
         self.engine.stop()
         problems = uninstall(self.platform)
         self.tray.stop()
         if problems:
-            messagebox.showwarning("Battop", "Battop was removed, but:\n\n" + "\n".join(problems))
+            messagebox.showwarning(_("Battop"), _("Battop was removed, but:") + "\n\n" + "\n".join(problems))
         else:
-            messagebox.showinfo("Battop", "Battop has been removed from this PC. You can delete its folder now.")
+            messagebox.showinfo(_("Battop"), _("Battop has been removed from this PC. You can delete its folder now."))
         self.root.destroy()
 
     # --- Live updates ---------------------------------------------------------
@@ -583,7 +643,7 @@ class MainWindow:
         self._drain_log()
         self._handle_commands()
         self._update_status()
-        self.root.after(_POLL_MS, self._poll)
+        self._poll_job = self.root.after(_POLL_MS, self._poll)
 
     def _drain_log(self) -> None:
         lines = []
@@ -594,6 +654,7 @@ class MainWindow:
                 break
         if not lines:
             return
+        self._log_lines = (self._log_lines + lines)[-_MAX_LOG_LINES:]
         self.activity.configure(state="normal")
         self.activity.insert("end", "\n".join(lines) + "\n")
         excess = int(self.activity.index("end-1c").split(".")[0]) - _MAX_LOG_LINES
@@ -625,35 +686,35 @@ class MainWindow:
         status = self.engine.status
         enabled = self.vars["enabled"].get()
         if status is None:
-            percent_text, line, fill = "--", "Checking your battery...", None
+            percent_text, line, fill = "--", _("Checking your battery..."), None
         elif not status.has_battery:
-            percent_text, line, fill = "--", "No battery found, so there's nothing to save on this PC.", None
+            percent_text, line, fill = "--", _("No battery found, so there's nothing to save on this PC."), None
         else:
             fill = status.percent
             percent_text = f"{status.percent}%" if status.percent is not None else "--"
             if status.on_battery:
-                line = "On battery"
+                line = _("On battery")
                 if status.seconds_left:
-                    line += f" · about {_format_duration(status.seconds_left)} left"
+                    line += _(" · about {time} left").format(time=_format_duration(status.seconds_left))
             elif status.charging:
-                line = "Plugged in · charging"
+                line = _("Plugged in · charging")
             else:
-                line = "Plugged in"
+                line = _("Plugged in")
         self.percent_label.configure(text=percent_text)
         self.status_label.configure(text=line)
         self._draw_battery(fill, plugged=status is not None and not status.on_battery)
 
         if self.engine.saving:
-            state, pill, colors = "saving", "Battery saving is ON", (COLORS["accent"], COLORS["on_accent"])
+            state, pill, colors = "saving", _("Battery saving is ON"), (COLORS["accent"], COLORS["on_accent"])
         elif not enabled:
-            state, pill, colors = "paused", "Paused", (COLORS["warn"], COLORS["on_accent"])
+            state, pill, colors = "paused", _("Paused"), (COLORS["warn"], COLORS["on_accent"])
         else:
-            state, pill = "idle", "Standing by · starts when you unplug"
+            state, pill = "idle", _("Standing by · starts when you unplug")
             colors = (COLORS["pill_idle_bg"], COLORS["pill_idle_fg"])
         self.pill.configure(text=pill, bg=colors[0], fg=colors[1])
         titles = self.engine.active_titles()
-        self.active_label.configure(text=("Active now: " + ", ".join(titles)) if titles else "")
-        self.tray.update(state, f"Battop - {percent_text} · {pill}", paused=not enabled)
+        self.active_label.configure(text=_("Active now: {titles}").format(titles=", ".join(_(title) for title in titles)) if titles else "")
+        self.tray.update(state, _("Battop - {percent} · {state}").format(percent=percent_text, state=pill), paused=not enabled)
 
     def _draw_battery(self, percent: int | None, plugged: bool) -> None:
         c = self.battery_canvas
@@ -679,10 +740,18 @@ class MainWindow:
             self._told_about_tray = True
             logging.getLogger("battop").info("Battop keeps running in the system tray")
 
+    def _cancel_timers(self) -> None:
+        """Stop the polling and delayed-save timers (they must not fire into a destroyed window)."""
+        for job in (self._poll_job, self._save_job):
+            if job:
+                self.root.after_cancel(job)
+        self._poll_job = self._save_job = None
+
     def quit(self) -> None:
         if self._save_job:
             self.root.after_cancel(self._save_job)
             self._save()
+        self._cancel_timers()
         self.root.withdraw()
         self.root.update()
         self.engine.stop()

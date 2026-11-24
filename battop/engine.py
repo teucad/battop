@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .actions.base import Action
 from .config import Settings, SettingsStore, effective
+from .i18n import _
 from .status import PowerStatus
 
 log = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ class Engine:
             self._thread.join(timeout=30)
         with self._lock:
             if self._saving or self._active:
-                log.info("Battop is closing - restoring your normal settings")
+                log.info(_("Battop is closing - restoring your normal settings"))
                 self._restore_all()
 
     def tick(self) -> None:
@@ -137,7 +138,7 @@ class Engine:
         was_low = self._low
         self._low = status.percent <= s.low_tier_threshold or (was_low and status.percent < s.low_tier_threshold + 3)
         if self._low and not was_low:
-            log.info("Battery is low (%d%%) - saving extra power", status.percent)
+            log.info(_("Battery is low (%d%%) - saving extra power"), status.percent)
             self._emit("low_tier")
 
     def _sync(self) -> None:
@@ -146,7 +147,7 @@ class Engine:
         want = on_battery and self._settings.enabled
         if want and not self._saving:
             pct = f" ({status.percent}%)" if status.percent is not None else ""
-            log.info("Running on battery%s - battery saving is on", pct)
+            log.info(_("Running on battery%s - battery saving is on"), pct)
             for action in self._actions:
                 if action.enabled(self._eff()):
                     self._apply(action)
@@ -154,9 +155,9 @@ class Engine:
             self._emit("saving_on")
         elif not want and self._saving:
             if on_battery:
-                log.info("Battery saving paused - restoring your normal settings")
+                log.info(_("Battery saving paused - restoring your normal settings"))
             else:
-                log.info("Plugged in - restoring your normal settings")
+                log.info(_("Plugged in - restoring your normal settings"))
             self._restore_all()
             self._emit("saving_off")
         elif want:
@@ -186,7 +187,7 @@ class Engine:
         try:
             saved = action.apply(self._eff())
         except Exception as exc:
-            log.warning("%s: couldn't apply (%s)", action.title, exc)
+            log.warning(_("%s: couldn't apply (%s)"), _(action.title), exc)
             return
         if saved is not None:
             self._active[action.key] = saved
@@ -199,7 +200,7 @@ class Engine:
             try:
                 action.restore(saved)
             except Exception as exc:
-                log.warning("%s: couldn't restore (%s)", action.title, exc)
+                log.warning(_("%s: couldn't restore (%s)"), _(action.title), exc)
         self._persist()
 
     def _restore_all(self) -> None:
@@ -212,7 +213,7 @@ class Engine:
             try:
                 updated = self._by_key[key].refresh(self._eff(), saved)
             except Exception as exc:
-                log.warning("%s: refresh failed (%s)", self._by_key[key].title, exc)
+                log.warning(_("%s: refresh failed (%s)"), _(self._by_key[key].title), exc)
                 continue
             if updated != saved:
                 self._active[key] = updated
@@ -227,7 +228,7 @@ class Engine:
             else:
                 self._state_path.unlink(missing_ok=True)
         except OSError as exc:
-            log.warning("Couldn't save undo information: %s", exc)
+            log.warning(_("Couldn't save undo information: %s"), exc)
 
     def recover_previous_session(self) -> None:
         """Undo changes left behind by a crash or shutdown while on battery."""
@@ -236,12 +237,12 @@ class Engine:
         try:
             active = json.loads(self._state_path.read_text(encoding="utf-8"))["active"]
         except (OSError, ValueError, KeyError, TypeError) as exc:
-            log.warning("Ignoring unreadable undo information: %s", exc)
+            log.warning(_("Ignoring unreadable undo information: %s"), exc)
             self._state_path.unlink(missing_ok=True)
             return
         with self._lock:
             self._active = {k: v for k, v in active.items() if k in self._by_key}
             if self._active:
-                log.info("Undoing changes left over from the last session")
+                log.info(_("Undoing changes left over from the last session"))
             self._restore_all()
             self._persist()

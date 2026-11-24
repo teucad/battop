@@ -41,6 +41,9 @@ class Platform(Protocol):
     def system_theme(self) -> str:
         """'light' or 'dark', following the operating system's setting."""
 
+    def system_language(self) -> str:
+        """Two-letter code of the operating system's display language, e.g. 'en' or 'tr'."""
+
     def signal_existing_instance(self) -> bool:
         """Ask an already-running Battop to show its window."""
 

@@ -8,6 +8,8 @@ import os
 from dataclasses import asdict, dataclass, field, fields, replace
 from pathlib import Path
 
+from .i18n import _
+
 log = logging.getLogger(__name__)
 
 # (min, max) for every numeric setting; values outside are clamped on load/save.
@@ -25,7 +27,7 @@ _RANGES = {
 }
 
 # Settings that must be one of a fixed set of values.
-_CHOICES = {"theme": ("system", "light", "dark")}
+_CHOICES = {"theme": ("system", "light", "dark"), "language": ("system", "en", "tr")}
 
 
 def data_dir() -> Path:
@@ -70,6 +72,7 @@ class Settings:
     start_minimized: bool = True
     notifications: bool = True
     theme: str = "system"
+    language: str = "system"
 
     def normalized(self) -> Settings:
         """Return a copy with numbers clamped and app names cleaned up."""
@@ -106,7 +109,7 @@ class Settings:
             elif isinstance(value, expected):
                 kwargs[f.name] = value
             else:
-                log.warning("Ignoring invalid value for %s: %r", f.name, value)
+                log.warning(_("Ignoring invalid value for %s: %r"), f.name, value)
         return cls(**kwargs).normalized()
 
 
@@ -152,7 +155,7 @@ class SettingsStore:
         except FileNotFoundError:
             return Settings()
         except (OSError, ValueError) as exc:
-            log.warning("Couldn't read settings (%s); using defaults", exc)
+            log.warning(_("Couldn't read settings (%s); using defaults"), exc)
             return Settings()
         if not isinstance(raw, dict):
             return Settings()

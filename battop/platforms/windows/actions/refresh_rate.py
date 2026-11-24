@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from battop.actions.base import Action
+from battop.i18n import _, N_
 
 from .. import display
 
@@ -13,7 +14,7 @@ _MIN_HZ = 60  # Lower than this tends to look flickery or isn't offered anyway.
 
 class RefreshRateAction(Action):
     key = "refresh_rate"
-    title = "Lower screen refresh rate"
+    title = N_("Lower screen refresh rate")
     settings_keys = ("refresh_rate_enabled",)
 
     def apply(self, settings):
@@ -24,13 +25,13 @@ class RefreshRateAction(Action):
             return None
         target = min(rates)
         display.set_refresh_rate(device, target)
-        log.info("Screen refresh rate: %d Hz -> %d Hz", current.dmDisplayFrequency, target)
+        log.info(_("Screen refresh rate: %d Hz -> %d Hz"), current.dmDisplayFrequency, target)
         return {"device": device, "previous": current.dmDisplayFrequency, "set_to": target}
 
     def restore(self, saved):
         device = saved["device"]
         if display.current_mode(device).dmDisplayFrequency != saved["set_to"]:
-            log.info("The refresh rate was changed by something else, so Battop left it as is")
+            log.info(_("The refresh rate was changed by something else, so Battop left it as is"))
             return
         display.set_refresh_rate(device, saved["previous"])
-        log.info("Screen refresh rate restored to %d Hz", saved["previous"])
+        log.info(_("Screen refresh rate restored to %d Hz"), saved["previous"])

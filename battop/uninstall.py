@@ -6,6 +6,7 @@ import logging
 import shutil
 
 from .config import data_dir
+from .i18n import _
 from .platforms.base import Platform
 
 
@@ -19,12 +20,12 @@ def uninstall(platform: Platform) -> list[str]:
     try:
         platform.set_autostart(False)
     except OSError as exc:
-        problems.append(f"couldn't remove it from Windows startup ({exc})")
+        problems.append(_("couldn't remove it from Windows startup ({error})").format(error=exc))
     folder = data_dir()
     for handler in list(logging.getLogger("battop").handlers):  # The log file must be closed to delete it.
         handler.close()
         logging.getLogger("battop").removeHandler(handler)
     shutil.rmtree(folder, ignore_errors=True)
     if folder.exists():
-        problems.append(f"couldn't delete {folder}")
+        problems.append(_("couldn't delete {folder}").format(folder=folder))
     return problems

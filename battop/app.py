@@ -10,11 +10,11 @@ import tkinter as tk
 from logging.handlers import RotatingFileHandler
 from tkinter import messagebox
 
-from . import platforms, single_instance
+from . import i18n, platforms, single_instance
 from .config import SettingsStore, data_dir
 from .engine import Engine
 from .gui import MainWindow, QueueLogHandler
-from .i18n import _
+from .i18n import N_, _
 from .tray import Tray
 from .uninstall import uninstall
 
@@ -33,9 +33,9 @@ def _setup_logging(debug: bool) -> queue.Queue:
 
 
 _NOTIFICATIONS = {
-    "saving_on": ("Battery saving is on", "Running on battery. Your power-saving settings are active."),
-    "saving_off": ("Battery saving is off", "Your usual settings are back."),
-    "low_tier": ("Battery is low", "Battop is saving extra power."),
+    "saving_on": (N_("Battery saving is on"), N_("Running on battery. Your power-saving settings are active.")),
+    "saving_off": (N_("Battery saving is off"), N_("Your usual settings are back.")),
+    "low_tier": (N_("Battery is low"), N_("Battop is saving extra power.")),
 }
 
 
@@ -50,12 +50,13 @@ def main(argv: list[str] | None = None) -> None:
 
     platform = platforms.current()
     platform.init_process()
+    i18n.set_language(i18n.resolve(SettingsStore().load().language, platform.system_language()))
 
     if not single_instance.acquire():
         if not platform.signal_existing_instance():
             root = tk.Tk()
             root.withdraw()
-            messagebox.showinfo("Battop", "Battop is already running. Look for its icon in the system tray.")
+            messagebox.showinfo(_("Battop"), _("Battop is already running. Look for its icon in the system tray."))
         return
 
     if args.uninstall:

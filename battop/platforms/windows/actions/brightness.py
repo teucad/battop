@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from battop.actions.base import Action
+from battop.i18n import _, N_
 
 from .. import ps
 
@@ -38,7 +39,7 @@ def set_brightness(level: int) -> int:
 
 class BrightnessAction(Action):
     key = "brightness"
-    title = "Dimmed screen"
+    title = N_("Dimmed screen")
     settings_keys = ("brightness_enabled", "brightness_percent")
 
     def apply(self, settings):
@@ -47,12 +48,12 @@ class BrightnessAction(Action):
         if previous <= target:
             return None  # Only ever dim, never brighten.
         actual = set_brightness(target)
-        log.info("Dimmed screen from %d%% to %d%%", previous, actual)
+        log.info(_("Dimmed screen from %d%% to %d%%"), previous, actual)
         return {"previous": previous, "set_to": actual}
 
     def restore(self, saved):
         if get_brightness() != saved["set_to"]:
-            log.info("You adjusted the brightness yourself, so Battop left it as is")
+            log.info(_("You adjusted the brightness yourself, so Battop left it as is"))
             return
         set_brightness(saved["previous"])
-        log.info("Screen brightness restored to %d%%", saved["previous"])
+        log.info(_("Screen brightness restored to %d%%"), saved["previous"])

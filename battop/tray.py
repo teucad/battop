@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import queue
 
+from .i18n import _
+
 try:
     import pystray
     from .icon import draw_icon
@@ -24,20 +26,28 @@ class Tray:
         self._state = None
         self._paused = False
 
+    def _build_menu(self):
+        post = self.commands.put
+        return pystray.Menu(
+            pystray.MenuItem(_("Open Battop"), lambda: post("show"), default=True),
+            pystray.MenuItem(
+                _("Pause battery saving"), lambda: post("toggle"), checked=lambda item: self._paused
+            ),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(_("Quit"), lambda: post("quit")),
+        )
+
     def start(self) -> None:
         if not self.available:
             return
-        post = self.commands.put
-        menu = pystray.Menu(
-            pystray.MenuItem("Open Battop", lambda: post("show"), default=True),
-            pystray.MenuItem(
-                "Pause battery saving", lambda: post("toggle"), checked=lambda _: self._paused
-            ),
-            pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quit", lambda: post("quit")),
-        )
-        self._icon = pystray.Icon("battop", draw_icon(64, _COLORS["idle"]), "Battop", menu)
+        self._icon = pystray.Icon("battop", draw_icon(64, _COLORS["idle"]), "Battop", self._build_menu())
         self._icon.run_detached()
+
+    def retranslate(self) -> None:
+        """Rebuild the menu after a language change."""
+        if self._icon is not None:
+            self._icon.menu = self._build_menu()
+            self._icon.update_menu()
 
     def update(self, state: str, tooltip: str, paused: bool) -> None:
         """`state` is 'saving', 'idle' or 'paused'."""

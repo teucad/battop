@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import winreg
 
+from ...i18n import _
 from . import anime, autostart, events, power
 from .actions import default_actions
 from .actions.anime_battery import AnimeBatteryAction
@@ -40,8 +41,8 @@ class WindowsPlatform:
         if dc is None:
             return None
         if dc == power.MODE_BEST_EFFICIENCY:
-            return "Windows is already set to use Best power efficiency whenever you're on battery."
-        return (
+            return _("Windows is already set to use Best power efficiency whenever you're on battery.")
+        return _(
             "Windows keeps a separate power mode for battery, which Battop can't safely switch "
             "back afterwards. Change it in Settings › System › Power & battery."
         )
@@ -67,6 +68,10 @@ class WindowsPlatform:
         return window.stop
 
     signal_existing_instance = staticmethod(events.signal_existing_instance)
+
+    def system_language(self) -> str:
+        primary = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF  # Primary language ID.
+        return {0x1F: "tr", 0x09: "en"}.get(primary, "en")
 
     def system_theme(self) -> str:
         try:

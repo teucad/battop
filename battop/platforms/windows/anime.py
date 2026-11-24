@@ -16,6 +16,7 @@ import logging
 import os
 from pathlib import Path
 
+from ...i18n import _
 from . import hid
 
 log = logging.getLogger(__name__)
@@ -172,7 +173,7 @@ def ghelper_conflict(config_path: Path | None = None) -> str | None:
     if not isinstance(config, dict):
         return None
     if config.get("matrix_auto") == 1:
-        return (
+        return _(
             "G-Helper is set to turn the matrix off on battery (“Auto” turn off when unplugged), "
             "so the battery level won't show. Turn that option off in G-Helper."
         )
@@ -181,12 +182,12 @@ def ghelper_conflict(config_path: Path | None = None) -> str | None:
     scrolling_text = mode == 5 and config.get("matrix_text_running") == 1
     if animated in ("Clock", "Audio") or scrolling_text:
         name = "scrolling Text" if scrolling_text else animated
-        return (
-            f"G-Helper is showing {name}, which redraws the matrix constantly and will flicker against "
+        return _(
+            "G-Helper is showing {name}, which redraws the matrix constantly and will flicker against "
             "Battop. Switch G-Helper's matrix to a static mode (Text without scrolling, Logo or Banner)."
-        )
+        ).format(name=name)
     if animated == "Picture":
-        return "If your G-Helper picture is an animated GIF, it will flicker against Battop."
+        return _("If your G-Helper picture is an animated GIF, it will flicker against Battop.")
     return None
 
 

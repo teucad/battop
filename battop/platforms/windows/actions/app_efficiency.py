@@ -8,6 +8,7 @@ import os
 from ctypes import wintypes
 
 from battop.actions.base import Action
+from battop.i18n import _, N_
 
 log = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ def _set_efficiency(pid: int, on: bool, priority: int | None = None) -> int:
 
 class AppEfficiencyAction(Action):
     key = "app_efficiency"
-    title = "Apps in efficiency mode"
+    title = N_("Apps in efficiency mode")
     settings_keys = ("app_efficiency_enabled", "efficiency_apps")
 
     def apply(self, settings):
@@ -117,7 +118,7 @@ class AppEfficiencyAction(Action):
                 updated[str(pid)] = None  # Don't retry every few seconds.
                 continue
             updated[str(pid)] = {"name": name, "priority": priority}
-            log.info("Put %s into efficiency mode", name)
+            log.info(_("Put %s into efficiency mode"), name)
         return {"processes": updated} if updated != known else saved
 
     def restore(self, saved):
@@ -133,4 +134,4 @@ class AppEfficiencyAction(Action):
             except OSError as exc:
                 log.debug("Can't restore %s (pid %s): %s", info["name"], pid, exc)
         if restored:
-            log.info("Took %s out of efficiency mode", ", ".join(sorted(restored)))
+            log.info(_("Took %s out of efficiency mode"), ", ".join(sorted(restored)))

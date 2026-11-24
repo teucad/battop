@@ -7,6 +7,7 @@ import uuid
 import winreg
 from ctypes import wintypes
 
+from ...i18n import N_, _
 from ...status import PowerStatus
 
 _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -34,9 +35,9 @@ MODE_BEST_EFFICIENCY = "961cc777-2547-4f9d-8174-7d86181b8a7a"
 MODE_BALANCED = "00000000-0000-0000-0000-000000000000"
 MODE_BEST_PERFORMANCE = "ded574b5-45a0-4f42-8737-46345c09c238"
 MODE_NAMES = {
-    MODE_BEST_EFFICIENCY: "Best power efficiency",
-    MODE_BALANCED: "Balanced",
-    MODE_BEST_PERFORMANCE: "Best performance",
+    MODE_BEST_EFFICIENCY: N_("Best power efficiency"),
+    MODE_BALANCED: N_("Balanced"),
+    MODE_BEST_PERFORMANCE: N_("Best performance"),
 }
 
 # Built-in power plans.
@@ -103,7 +104,8 @@ def set_power_mode(mode: str) -> None:
 
 
 def mode_name(mode: str) -> str:
-    return MODE_NAMES.get(mode, "Custom")
+    label = MODE_NAMES.get(mode, N_("Custom"))
+    return _(label)
 
 
 def get_dc_overlay() -> str | None:
