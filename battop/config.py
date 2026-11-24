@@ -21,6 +21,7 @@ _RANGES = {
     "low_tier_threshold": (5, 50),
     "low_brightness_percent": (5, 100),
     "low_cpu_max_percent": (30, 100),
+    "anime_brightness": (1, 3),
 }
 
 
@@ -50,6 +51,9 @@ class Settings:
     screen_off_minutes: int = 3
     sleep_minutes: int = 10
     bluetooth_enabled: bool = False
+    # Battery level on the ASUS AniMe Matrix lid display (1 = dim, 2 = medium, 3 = full).
+    anime_battery_enabled: bool = False
+    anime_brightness: int = 1
     app_efficiency_enabled: bool = False
     efficiency_apps: tuple[str, ...] = field(default_factory=tuple)
 

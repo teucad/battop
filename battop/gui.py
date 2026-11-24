@@ -37,6 +37,7 @@ _BOOL_KEYS = (
     "refresh_rate_enabled",
     "timeouts_enabled",
     "bluetooth_enabled",
+    "anime_battery_enabled",
     "low_tier_enabled",
     "app_efficiency_enabled",
     "start_minimized",
@@ -50,6 +51,7 @@ _NUMBER_KEYS = (
     "low_tier_threshold",
     "low_brightness_percent",
     "low_cpu_max_percent",
+    "anime_brightness",
 )
 _SAVE_DELAY_MS = 600
 _POLL_MS = 500
@@ -96,12 +98,13 @@ class MainWindow:
         self._init_style()
         self.vars: dict[str, tk.Variable] = {k: tk.BooleanVar() for k in _BOOL_KEYS}
         self.vars.update({k: tk.DoubleVar() for k in _NUMBER_KEYS})
+        self.vars["anime_brightness"] = tk.IntVar()  # Radio buttons need an exact integer match.
 
         notebook = ttk.Notebook(root)
         notebook.pack(fill="both", expand=True, padx=14, pady=(14, 4))
         notebook.add(self._build_overview(notebook), text="Overview")
         notebook.add(self._build_power_page(notebook), text="Power saving")
-        if platform.supported_keys & {"refresh_rate", "timeouts", "bluetooth"}:
+        if platform.supported_keys & {"refresh_rate", "timeouts", "bluetooth", "anime_battery"}:
             notebook.add(self._build_extras_page(notebook), text="Extras")
         notebook.add(self._build_low_battery_page(notebook), text="Low battery")
         if "app_efficiency" in platform.supported_keys:
@@ -139,6 +142,9 @@ class MainWindow:
         style.configure("Card.TCheckbutton", background=c["card"], font=(FONT, 11, "bold"))
         style.map("Card.TCheckbutton", background=[("active", c["card"])])
         style.configure("Plain.TCheckbutton", background=c["card"])
+        style.configure("Plain.TRadiobutton", background=c["card"])
+        style.map("Plain.TRadiobutton", background=[("active", c["card"])])
+        style.configure("Warn.TLabel", background=c["card"], foreground=c["warn"], font=(FONT, 9))
         style.map("Plain.TCheckbutton", background=[("active", c["card"])])
         style.configure("Horizontal.TScale", background=c["card"], troughcolor=c["border"])
         style.configure("TButton", padding=(10, 4))
@@ -316,7 +322,30 @@ class MainWindow:
                 "If a mouse, headset or other device is connected, Bluetooth is left on. "
                 "It is switched back on when you plug in.",
             )
+        if "anime_battery" in supported:
+            self._build_anime_card(page)
         return page
+
+    def _build_anime_card(self, page) -> None:
+        card = self._toggle_card(
+            page,
+            "anime_battery_enabled",
+            "Show the battery level on the AniMe Matrix",
+            "While unplugged, the lid display shows a battery icon and your charge. When you plug in, "
+            "G-Helper takes the display back and shows whatever you had before.",
+        )
+        row = ttk.Frame(card, style="Card.TFrame")
+        row.pack(fill="x", pady=(8, 0))
+        ttk.Label(row, text="Brightness", style="Card.TLabel").pack(side="left", padx=(0, 12))
+        for level, name in ((1, "Dim"), (2, "Medium"), (3, "Full")):
+            ttk.Radiobutton(
+                row, text=name, value=level, variable=self.vars["anime_brightness"], style="Plain.TRadiobutton"
+            ).pack(side="left", padx=(0, 10))
+        warning = self.platform.warning("anime_battery")
+        if warning:
+            note = ttk.Label(card, text="⚠ " + warning, style="Warn.TLabel", justify="left")
+            note.pack(fill="x", anchor="w", pady=(8, 0))
+            note.bind("<Configure>", lambda e: e.widget.configure(wraplength=max(e.width - 4, 120)))
 
     def _build_low_battery_page(self, notebook) -> ttk.Frame:
         page = self._page(notebook)

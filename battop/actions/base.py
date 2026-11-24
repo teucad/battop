@@ -19,6 +19,8 @@ class Action(ABC):
     # Settings fields this action depends on. The first one is its on/off
     # toggle. When any of them change while unplugged, the action is re-run.
     settings_keys: ClassVar[tuple[str, ...]]
+    # While active, ask the engine to call `refresh` at least this often (seconds).
+    refresh_every_sec: ClassVar[float | None] = None
 
     def enabled(self, settings: Settings) -> bool:
         return bool(getattr(settings, self.settings_keys[0]))

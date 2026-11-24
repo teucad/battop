@@ -174,6 +174,19 @@ class EngineTests(unittest.TestCase):
         engine.tick()
         self.assertEqual(self.cpu.calls, ["apply"])
 
+    def test_active_actions_can_ask_for_faster_checks(self):
+        fast = FakeAction("fast", "bluetooth_enabled")
+        fast.refresh_every_sec = 3
+        engine = self.make_engine([self.mode, fast])
+        engine.submit_settings(replace(Settings(), bluetooth_enabled=True))
+        self.assertEqual(engine._next_wait(), Settings().poll_interval_sec)  # Not active yet.
+        self.on_battery = True
+        engine.tick()
+        self.assertEqual(engine._next_wait(), 3)
+        self.on_battery = False
+        engine.tick()
+        self.assertEqual(engine._next_wait(), Settings().poll_interval_sec)
+
 
 if __name__ == "__main__":
     unittest.main()

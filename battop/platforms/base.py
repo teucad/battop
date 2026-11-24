@@ -24,6 +24,9 @@ class Platform(Protocol):
     def unavailable_reason(self, key: str) -> str | None:
         """Why a supported action can't be used right now, or None if it can."""
 
+    def warning(self, key: str) -> str | None:
+        """A caution to show on a card whose action works but may not behave as expected."""
+
     def running_app_names(self) -> list[str]: ...
 
     def start_events(

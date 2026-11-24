@@ -111,8 +111,19 @@ class Engine:
                 self.tick()
             except Exception:
                 log.exception("Unexpected error while checking the power status")
-            self._wake.wait(self._settings.poll_interval_sec)
+            self._wake.wait(self._next_wait())
             self._wake.clear()
+
+    def _next_wait(self) -> float:
+        """Seconds until the next check: the poll interval, or sooner if an active action asks."""
+        with self._lock:
+            waits = [self._settings.poll_interval_sec]
+            waits += [
+                a.refresh_every_sec
+                for key in self._active
+                if (a := self._by_key.get(key)) is not None and a.refresh_every_sec
+            ]
+            return min(waits)
 
     def _eff(self) -> Settings:
         return effective(self._settings, self._low)

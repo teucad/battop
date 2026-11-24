@@ -2,19 +2,24 @@ from __future__ import annotations
 
 import ctypes
 
-from . import autostart, events, power
+from . import anime, autostart, events, power
 from .actions import default_actions
+from .actions.anime_battery import AnimeBatteryAction
 from .actions.app_efficiency import running_process_names
 
 
 class WindowsPlatform:
     name = "windows"
-    supported_keys = frozenset(
+    _BASE_KEYS = frozenset(
         {
             "power_mode", "brightness", "cpu_limit", "battery_saver", "app_efficiency",
             "refresh_rate", "timeouts", "bluetooth",
         }
     )
+
+    def __init__(self):
+        self.has_anime_matrix = anime.is_present()
+        self.supported_keys = self._BASE_KEYS | ({"anime_battery"} if self.has_anime_matrix else frozenset())
 
     def init_process(self) -> None:
         try:
@@ -42,7 +47,13 @@ class WindowsPlatform:
 
     def actions(self):
         blocked = self.unavailable_reason("power_mode") is not None
-        return [a for a in default_actions() if not (blocked and a.key == "power_mode")]
+        actions = [a for a in default_actions() if not (blocked and a.key == "power_mode")]
+        if self.has_anime_matrix:
+            actions.append(AnimeBatteryAction(power.get_power_status))
+        return actions
+
+    def warning(self, key: str) -> str | None:
+        return anime.ghelper_conflict() if key == "anime_battery" else None
 
     def start_events(self, on_power_change, on_end_session, on_show):
         window = events.EventWindow(
