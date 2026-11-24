@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import queue
+import sys
 import tkinter as tk
 from dataclasses import replace
 from tkinter import messagebox, scrolledtext, ttk
@@ -145,10 +146,17 @@ class MainWindow:
         label.bind("<Configure>", lambda e: e.widget.configure(wraplength=max(e.width - 4, 120)))
         return label
 
-    def _toggle_card(self, parent, key: str, title: str, text: str) -> ttk.Frame:
+    def _toggle_card(self, parent, key: str, title: str, text: str, unavailable: str | None = None) -> ttk.Frame:
         card = self._card(parent)
-        ttk.Checkbutton(card, text=title, variable=self.vars[key], style="Card.TCheckbutton").pack(anchor="w")
-        self._description(card, text)
+        check = ttk.Checkbutton(card, text=title, variable=self.vars[key], style="Card.TCheckbutton")
+        check.pack(anchor="w")
+        self._description(card, unavailable or text)
+        if unavailable:
+            check.state(["disabled"])
+            if sys.platform == "win32":
+                ttk.Button(
+                    card, text="Open power settings", command=lambda: os.startfile("ms-settings:powersleep")
+                ).pack(anchor="w", pady=(8, 0))
         return card
 
     def _slider_card(self, parent, toggle_key, value_key, title, text, low, high) -> None:
@@ -226,6 +234,7 @@ class MainWindow:
                 "power_mode_enabled",
                 "Use “Best power efficiency” mode",
                 "Switches Windows to its most efficient power mode. Your previous mode comes back when you plug in.",
+                unavailable=self.platform.unavailable_reason("power_mode"),
             )
         if "brightness" in supported:
             self._slider_card(

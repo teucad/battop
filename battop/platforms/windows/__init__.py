@@ -20,13 +20,26 @@ class WindowsPlatform:
             pass
 
     power_status = staticmethod(power.get_power_status)
-    actions = staticmethod(default_actions)
     running_app_names = staticmethod(running_process_names)
     autostart_enabled = staticmethod(autostart.is_enabled)
     set_autostart = staticmethod(autostart.set_enabled)
 
     def unavailable_reason(self, key: str) -> str | None:
-        return None
+        if key != "power_mode" or power.get_active_scheme() != power.SCHEME_BALANCED:
+            return None  # (On other plans the Power saver fallback is used.)
+        dc = power.get_dc_overlay()
+        if dc is None:
+            return None
+        if dc == power.MODE_BEST_EFFICIENCY:
+            return "Windows is already set to use Best power efficiency whenever you're on battery."
+        return (
+            "Windows keeps a separate power mode for battery, which Battop can't safely switch "
+            "back afterwards. Change it in Settings › System › Power & battery."
+        )
+
+    def actions(self):
+        blocked = self.unavailable_reason("power_mode") is not None
+        return [a for a in default_actions() if not (blocked and a.key == "power_mode")]
 
     def start_events(self, on_power_change, on_end_session, on_show):
         window = events.EventWindow(
