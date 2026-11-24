@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ctypes
 
-from . import autostart, power
+from . import autostart, events, power
 from .actions import default_actions
 from .actions.app_efficiency import running_process_names
 
@@ -27,3 +27,12 @@ class WindowsPlatform:
 
     def unavailable_reason(self, key: str) -> str | None:
         return None
+
+    def start_events(self, on_power_change, on_end_session, on_show):
+        window = events.EventWindow(
+            on_power_change=on_power_change, on_end_session=on_end_session, on_show=on_show
+        )
+        window.start()  # If it fails we just fall back to polling.
+        return window.stop
+
+    signal_existing_instance = staticmethod(events.signal_existing_instance)

@@ -60,6 +60,13 @@ class Tray:
             self._paused = paused
             self._icon.update_menu()
 
+    def notify(self, title: str, message: str) -> None:
+        if self._icon is not None:
+            try:
+                self._icon.notify(message, title)
+            except Exception:  # Notifications are best-effort.
+                pass
+
     def stop(self) -> None:
         if self._icon is not None:
             self._icon.stop()

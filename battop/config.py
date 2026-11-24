@@ -29,7 +29,8 @@ def data_dir() -> Path:
 class Settings:
     # Master switch: when False, Battop only watches and never changes anything.
     enabled: bool = True
-    poll_interval_sec: int = 5
+    # Power events wake the engine instantly; polling is only a fallback.
+    poll_interval_sec: int = 30
 
     # Each action's on/off toggle comes first, followed by its parameters.
     power_mode_enabled: bool = True
@@ -44,6 +45,7 @@ class Settings:
 
     # Stay hidden in the tray when launched automatically at sign-in.
     start_minimized: bool = True
+    notifications: bool = True
 
     def normalized(self) -> Settings:
         """Return a copy with numbers clamped and app names cleaned up."""

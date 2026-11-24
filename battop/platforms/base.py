@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Protocol
 
 from ..actions.base import Action
@@ -24,6 +25,14 @@ class Platform(Protocol):
         """Why a supported action can't be used right now, or None if it can."""
 
     def running_app_names(self) -> list[str]: ...
+
+    def start_events(
+        self, on_power_change: Callable[[], None], on_end_session: Callable[[], None], on_show: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Listen for OS events; returns a function that stops listening."""
+
+    def signal_existing_instance(self) -> bool:
+        """Ask an already-running Battop to show its window."""
 
     def autostart_enabled(self) -> bool: ...
 

@@ -30,6 +30,7 @@ class Engine:
         actions: Sequence[Action],
         status_provider: Callable[[], PowerStatus],
         state_path: Path | None = None,
+        on_event: Callable[[str], None] | None = None,
     ):
         self._store = store
         self._settings = store.load()
@@ -38,6 +39,7 @@ class Engine:
         self._by_key = {a.key: a for a in self._actions}
         self._status_provider = status_provider
         self._state_path = state_path
+        self._on_event = on_event
         self._active: dict[str, dict] = {}  # action key -> undo data
         self._saving = False
         self._lock = threading.RLock()
@@ -60,6 +62,10 @@ class Engine:
     def active_titles(self) -> list[str]:
         with self._lock:
             return [self._by_key[k].title for k in self._active if k in self._by_key]
+
+    def wake(self) -> None:
+        """Check the power status right away (e.g. after a power-source event)."""
+        self._wake.set()
 
     def submit_settings(self, settings: Settings) -> None:
         """Save new settings; the engine thread picks them up right away."""
@@ -116,14 +122,24 @@ class Engine:
                 if action.enabled(self._settings):
                     self._apply(action)
             self._saving = True
+            self._emit("saving_on")
         elif not want and self._saving:
             if on_battery:
                 log.info("Battery saving paused - restoring your normal settings")
             else:
                 log.info("Plugged in - restoring your normal settings")
             self._restore_all()
+            self._emit("saving_off")
         elif want:
             self._refresh_all()
+
+    def _emit(self, kind: str) -> None:
+        if self._on_event is None or not self._settings.notifications:
+            return
+        try:
+            self._on_event(kind)
+        except Exception:
+            log.exception("Event handler failed for %s", kind)
 
     def _reconcile(self, old: Settings, new: Settings) -> None:
         """While saving, re-run only the actions whose settings changed."""

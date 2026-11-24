@@ -14,6 +14,7 @@ from . import platforms, single_instance
 from .config import SettingsStore, data_dir
 from .engine import Engine
 from .gui import MainWindow, QueueLogHandler
+from .i18n import _
 from .tray import Tray
 
 
@@ -30,31 +31,51 @@ def _setup_logging(debug: bool) -> queue.Queue:
     return log_queue
 
 
+_NOTIFICATIONS = {
+    "saving_on": ("Battery saving is on", "Running on battery. Your power-saving settings are active."),
+    "saving_off": ("Battery saving is off", "Your usual settings are back."),
+}
+
+
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="battop", description="Automatic battery saving for Windows laptops.")
+    parser = argparse.ArgumentParser(prog="battop", description="Automatic battery saving for laptops.")
     parser.add_argument("--startup", action="store_true", help="launched at sign-in (may start hidden)")
     parser.add_argument("--debug", action="store_true", help="verbose logging")
     args = parser.parse_args(argv)
 
-    if not single_instance.acquire():
-        root = tk.Tk()
-        root.withdraw()
-        messagebox.showinfo("Battop", "Battop is already running. Look for its icon in the system tray.")
-        return
-
     platform = platforms.current()
     platform.init_process()
 
-    log_queue = _setup_logging(args.debug)
-    engine = Engine(SettingsStore(), platform.actions(), platform.power_status, data_dir() / "state.json")
-    engine.start()
+    if not single_instance.acquire():
+        if not platform.signal_existing_instance():
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showinfo("Battop", "Battop is already running. Look for its icon in the system tray.")
+        return
 
-    tray = Tray(queue.Queue())
+    log_queue = _setup_logging(args.debug)
+    commands: queue.Queue = queue.Queue()
+    tray = Tray(commands)
     tray.start()
+
+    def notify(kind: str) -> None:
+        title, message = _NOTIFICATIONS[kind]
+        tray.notify(_(title), _(message))
+
+    engine = Engine(
+        SettingsStore(), platform.actions(), platform.power_status, data_dir() / "state.json", on_event=notify
+    )
+    engine.start()
+    stop_events = platform.start_events(
+        on_power_change=engine.wake,
+        on_end_session=engine.stop,  # Restore everything before Windows signs out or shuts down.
+        on_show=lambda: commands.put("show"),
+    )
 
     root = tk.Tk()
     MainWindow(root, engine, platform, log_queue, tray, start_hidden=args.startup and engine.settings.start_minimized)
     try:
         root.mainloop()
     finally:
+        stop_events()
         engine.stop()  # No-op if the window already shut it down.

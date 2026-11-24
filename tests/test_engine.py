@@ -1,5 +1,6 @@
 import json
 import tempfile
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -44,8 +45,10 @@ class EngineTests(unittest.TestCase):
         self.cpu = FakeAction("cpu", "cpu_limit_enabled")  # Disabled by default.
         self.engine = self.make_engine([self.mode, self.cpu])
 
-    def make_engine(self, actions):
-        return Engine(self.store, actions, lambda: status(self.on_battery), self.state_path)
+    def make_engine(self, actions, on_event=None):
+        return Engine(
+            self.store, actions, lambda: status(self.on_battery), self.state_path, on_event=on_event
+        )
 
     def test_unplugging_applies_and_plugging_in_restores(self):
         self.engine.tick()
@@ -103,6 +106,33 @@ class EngineTests(unittest.TestCase):
         self.engine.stop()
         self.assertEqual(self.mode.calls[0], ("restore", 7))
         self.assertFalse(self.state_path.exists())
+
+    def test_events_are_emitted_and_can_be_silenced(self):
+        events = []
+        engine = self.make_engine([self.mode], on_event=events.append)
+        self.on_battery = True
+        engine.tick()
+        self.on_battery = False
+        engine.tick()
+        self.assertEqual(events, ["saving_on", "saving_off"])
+
+        events.clear()
+        engine.submit_settings(replace(Settings(), notifications=False))
+        self.on_battery = True
+        engine.tick()
+        self.assertEqual(events, [])
+
+    def test_wake_reacts_immediately_despite_long_poll_interval(self):
+        self.assertGreaterEqual(self.engine.settings.poll_interval_sec, 30)
+        self.engine.start()
+        self.addCleanup(self.engine.stop)
+        time.sleep(0.2)  # Let the first (plugged-in) tick finish.
+        self.on_battery = True
+        self.engine.wake()
+        deadline = time.monotonic() + 2
+        while not self.engine.saving and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(self.engine.saving)
 
 
 if __name__ == "__main__":
