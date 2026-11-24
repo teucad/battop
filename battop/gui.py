@@ -227,7 +227,17 @@ class MainWindow:
         # Re-evaluate what is available (after the button's own widget has finished its click).
         self.root.after_idle(lambda: self._rebuild(self._collect()))
 
+    def _availability(self, toggle_key: str, unavailable, fix):
+        """Ask the platform whether a card's feature works here, unless the caller already did."""
+        if unavailable is None:
+            feature = toggle_key.removesuffix("_enabled")
+            unavailable = self.platform.unavailable_reason(feature)
+            if fix is None:
+                fix = self.platform.fix_action(feature)
+        return unavailable, fix
+
     def _toggle_card(self, parent, key: str, title: str, text: str, unavailable=None, fix=None) -> ttk.Frame:
+        unavailable, fix = self._availability(key, unavailable, fix)
         card = self._card(parent)
         check = ttk.Checkbutton(card, text=title, variable=self.vars[key], style="Card.TCheckbutton")
         check.pack(anchor="w")
@@ -249,6 +259,7 @@ class MainWindow:
 
         A lone slider shows its value on the title row; several get a captioned row each.
         """
+        unavailable, fix = self._availability(toggle_key, unavailable, fix)
         card = self._card(parent)
         top = ttk.Frame(card, style="Card.TFrame")
         top.pack(fill="x")

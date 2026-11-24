@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+  <vendor>Battop</vendor>
+  <vendor_url>https://github.com/teucad/battop</vendor_url>
+  <action id="org.battop.helper">
+    <description>Let Battop limit the processor and lower app priorities while on battery</description>
+    <message>Authentication is required to let Battop adjust power settings</message>
+    <defaults>
+      <!-- Only someone sitting at the machine (an active local session) may use the helper, without a prompt. -->
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/battop-helper</annotate>
+  </action>
+</policyconfig>

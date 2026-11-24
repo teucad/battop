@@ -151,5 +151,21 @@
  "Pause battery saving": "Pil tasarrufunu duraklat",
  "Quit": "Çık",
  "couldn't remove it from the startup list ({error})": "başlangıç listesinden kaldırılamadı ({error})",
- "couldn't delete {folder}": "{folder} silinemedi"
+ "couldn't delete {folder}": "{folder} silinemedi",
+ "Power profiles aren't available. Install power-profiles-daemon to use this.": "Güç profilleri kullanılamıyor. Bunu kullanmak için power-profiles-daemon yükleyin.",
+ "No controllable screen backlight was found.": "Denetlenebilir bir ekran arka ışığı bulunamadı.",
+ "Changing screen-off and sleep times is only supported on GNOME.": "Ekran kapatma ve uyku sürelerini değiştirmek yalnızca GNOME'da desteklenir.",
+ "bluetoothctl isn't installed.": "bluetoothctl yüklü değil.",
+ "This needs a one-time setup that asks for your administrator password.": "Bunun için yönetici parolanızı soran tek seferlik bir kurulum gerekir.",
+ "Set up…": "Kur…",
+ "Lowering app priorities needs the one-time setup, so it was skipped": "Uygulama önceliklerini düşürmek tek seferlik kurulum gerektirir, bu yüzden atlandı",
+ "Maximum processor speed limited to %d%%": "Maksimum işlemci hızı %%%d ile sınırlandı",
+ "Maximum processor speed restored": "Maksimum işlemci hızı geri yüklendi",
+ "The processor limit needs the one-time setup, so it was skipped": "İşlemci sınırı tek seferlik kurulum gerektirir, bu yüzden atlandı",
+ "Power Saver profile": "Güç Tasarrufu profili",
+ "Switched power profile from %s to Power Saver": "Güç profili %s profilinden Güç Tasarrufu'na geçirildi",
+ "Power profile restored to %s": "Güç profili %s olarak geri yüklendi",
+ "Idle timeout %s: %d s -> %d s": "Boşta kalma zaman aşımı %s: %d sn -> %d sn",
+ "Idle timeout %s restored to %d s": "Boşta kalma zaman aşımı %s, %d sn değerine geri yüklendi",
+ "The setup was cancelled.": "Kurulum iptal edildi."
 }

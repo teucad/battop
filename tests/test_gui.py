@@ -5,6 +5,8 @@ import tempfile
 import tkinter as tk
 import unittest
 from pathlib import Path
+from tkinter import ttk
+from unittest import mock
 
 from battop import i18n, theme
 from battop.config import Settings, SettingsStore
@@ -31,6 +33,12 @@ class FakePlatform:
     def warning(self, key):
         return None
 
+    def fix_action(self, key):
+        return None
+
+    def open_path(self, path):
+        raise AssertionError("tests must not open folders")
+
     def running_app_names(self):
         return []
 
@@ -39,6 +47,36 @@ class FakePlatform:
 
     def set_autostart(self, enabled):
         raise AssertionError("tests must not change the real startup setting")
+
+
+class SetupNeededPlatform(FakePlatform):
+    """cpu_limit is unavailable until its fix ("Set up…") has run, like the Linux root helper."""
+
+    supported_keys = frozenset({"brightness", "cpu_limit"})
+
+    def __init__(self, fails=False):
+        self.ready, self.fails, self.fix_calls = False, fails, 0
+
+    def unavailable_reason(self, key):
+        return "Needs a one-time setup." if key == "cpu_limit" and not self.ready else None
+
+    def fix_action(self, key):
+        return ("Set up…", self._fix) if key == "cpu_limit" and not self.ready else None
+
+    def _fix(self):
+        self.fix_calls += 1
+        if self.fails:
+            raise OSError("The setup was cancelled.")
+        self.ready = True
+
+
+def widgets_of(root, kind):
+    found = []
+    for child in root.winfo_children():
+        if isinstance(child, kind):
+            found.append(child)
+        found += widgets_of(child, kind)
+    return found
 
 
 class GuiTests(unittest.TestCase):
@@ -117,6 +155,44 @@ class GuiTests(unittest.TestCase):
         self.window.apply_language("en")
         self.assertEqual(self.window.notebook.tab(0, "text"), "Overview")
         self.assertEqual(self.window._collect().language, "en")
+
+    def build(self, platform):
+        self.window.platform = platform
+        self.window._rebuild(self.window._collect())  # The same path a language change or a fix uses.
+        self.root.update()
+
+    def setup_buttons(self):
+        return [b for b in widgets_of(self.root, ttk.Button) if str(b.cget("text")) == "Set up…"]
+
+    def test_unavailable_card_explains_why_and_offers_the_fix(self):
+        platform = SetupNeededPlatform()
+        self.build(platform)
+        labels = [str(w.cget("text")) for w in widgets_of(self.root, ttk.Label)]
+        self.assertIn("Needs a one-time setup.", labels)
+        self.assertEqual(len(self.setup_buttons()), 1)
+        # The slider card for the unavailable feature is switched off.
+        scales = widgets_of(self.root, ttk.Scale)
+        self.assertTrue(any(scale.instate(["disabled"]) for scale in scales))
+
+    def test_clicking_the_fix_runs_it_and_refreshes_the_card(self):
+        platform = SetupNeededPlatform()
+        self.build(platform)
+        self.setup_buttons()[0].invoke()
+        self.root.update()
+        self.assertEqual(platform.fix_calls, 1)
+        self.assertEqual(self.setup_buttons(), [], "the button disappears once the feature is available")
+        labels = [str(w.cget("text")) for w in widgets_of(self.root, ttk.Label)]
+        self.assertNotIn("Needs a one-time setup.", labels)
+
+    def test_a_failing_fix_is_reported_and_leaves_the_card_as_it_was(self):
+        platform = SetupNeededPlatform(fails=True)
+        self.build(platform)
+        with mock.patch("battop.gui.messagebox.showerror") as shown:
+            self.setup_buttons()[0].invoke()
+            self.root.update()
+        shown.assert_called_once()
+        self.assertIn("cancelled", shown.call_args[0][1])
+        self.assertEqual(len(self.setup_buttons()), 1)
 
     def test_unsupported_cards_are_not_built(self):
         tabs = [self.window.root.nametowidget(t) for t in self.root.winfo_children()[0].tabs()]

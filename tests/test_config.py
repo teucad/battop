@@ -1,3 +1,4 @@
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -30,7 +31,10 @@ class SettingsTests(unittest.TestCase):
 
     def test_app_names_are_normalized(self):
         settings = Settings.from_dict({"efficiency_apps": [" Discord ", "discord.exe", "", "Steam.EXE"]})
-        self.assertEqual(settings.efficiency_apps, ("discord.exe", "steam.exe"))
+        if sys.platform == "win32":  # Windows process names end in ".exe", which is added when missing.
+            self.assertEqual(settings.efficiency_apps, ("discord.exe", "steam.exe"))
+        else:  # Elsewhere names are used as typed (case-insensitively).
+            self.assertEqual(settings.efficiency_apps, ("discord", "discord.exe", "steam.exe"))
 
     def test_effective_only_changes_anything_while_low(self):
         base = Settings(brightness_enabled=False, brightness_percent=50, cpu_limit_enabled=False)

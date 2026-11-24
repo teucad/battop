@@ -6,27 +6,49 @@ import argparse
 import logging
 import queue
 import sys
-import tkinter as tk
 from logging.handlers import RotatingFileHandler
-from tkinter import messagebox
 
 from . import i18n, platforms, single_instance
 from .config import SettingsStore, data_dir
 from .engine import Engine
-from .gui import MainWindow, QueueLogHandler
 from .i18n import N_, _
 from .tray import Tray
 from .uninstall import uninstall
 
 
-def _setup_logging(debug: bool) -> queue.Queue:
+def _import_gui():
+    """Import the window code, with a clear hint if Tk (or Pillow's ImageTk) isn't installed."""
+    try:
+        from . import gui
+    except ImportError as exc:
+        sys.exit(
+            f"Battop needs Tk and Pillow's ImageTk to show its window ({exc}).\n"
+            "On Debian/Ubuntu: sudo apt install python3-tk python3-pil.imagetk"
+        )
+    return gui
+
+
+def _show_message(text: str) -> None:
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showinfo(_("Battop"), text)
+        root.destroy()
+    except Exception:  # No Tk or no display: say it on the console instead.
+        print(text)
+
+
+def _setup_logging(debug: bool, gui) -> queue.Queue:
     log_queue: queue.Queue = queue.Queue()
     logger = logging.getLogger("battop")
     logger.setLevel(logging.DEBUG if debug else logging.INFO)
     file_handler = RotatingFileHandler(data_dir() / "battop.log", maxBytes=512_000, backupCount=2, encoding="utf-8")
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     logger.addHandler(file_handler)
-    logger.addHandler(QueueLogHandler(log_queue))
+    logger.addHandler(gui.QueueLogHandler(log_queue))
     if debug and sys.stderr:
         logger.addHandler(logging.StreamHandler())
     return log_queue
@@ -54,9 +76,17 @@ def main(argv: list[str] | None = None) -> None:
     if args.setup_linux_helper or args.remove_linux_helper or args.install_desktop_entry:
         if not sys.platform.startswith("linux"):
             parser.error("these options only exist on Linux")
-        from .platforms.linux import setup
+        from .platforms.linux import desktop, setup
 
-        sys.exit(setup.main(args))
+        status = 0
+        if args.install_desktop_entry:
+            desktop.install_desktop_entry()
+            print("Battop was added to the application menu.")
+        if args.setup_linux_helper:
+            status = setup.main(["install"])
+        elif args.remove_linux_helper:
+            status = setup.main(["remove"])
+        sys.exit(status)
 
     platform = platforms.current()
     platform.init_process()
@@ -64,9 +94,7 @@ def main(argv: list[str] | None = None) -> None:
 
     if not single_instance.acquire():
         if not platform.signal_existing_instance():
-            root = tk.Tk()
-            root.withdraw()
-            messagebox.showinfo(_("Battop"), _("Battop is already running. Look for its icon in the system tray."))
+            _show_message(_("Battop is already running. Look for its icon in the system tray."))
         return
 
     if args.uninstall:
@@ -76,7 +104,10 @@ def main(argv: list[str] | None = None) -> None:
         print("Battop was removed." if not problems else "Battop was removed, but: " + "; ".join(problems))
         return
 
-    log_queue = _setup_logging(args.debug)
+    gui = _import_gui()
+    import tkinter as tk
+
+    log_queue = _setup_logging(args.debug, gui)
     commands: queue.Queue = queue.Queue()
     tray = Tray(commands)
     tray.start()
@@ -92,13 +123,15 @@ def main(argv: list[str] | None = None) -> None:
     engine.start()
     stop_events = platform.start_events(
         on_power_change=engine.wake,
-        on_end_session=engine.stop,  # Restore everything before Windows signs out or shuts down.
+        on_end_session=engine.stop,  # Restore everything before the session ends.
         on_show=lambda: commands.put("show"),
         on_theme_change=lambda: commands.put("theme"),
     )
 
     root = tk.Tk()
-    MainWindow(root, engine, platform, log_queue, tray, start_hidden=args.startup and engine.settings.start_minimized)
+    gui.MainWindow(
+        root, engine, platform, log_queue, tray, start_hidden=args.startup and engine.settings.start_minimized
+    )
     try:
         root.mainloop()
     finally:

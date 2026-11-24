@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "battop"
+dynamic = ["version"]
+description = "Automatic battery saving for laptops: applies power-saving tweaks when unplugged and undoes them when plugged in."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["Pillow>=10.0", "pystray>=0.19"]
+classifiers = [
+    "Environment :: X11 Applications",
+    "Environment :: Win32 (MS Windows)",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: System :: Power (UPS)",
+]
+
+[project.urls]
+Homepage = "https://github.com/teucad/battop"
+
+[project.gui-scripts]
+battop = "battop.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "battop.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["battop*"]
+
+[tool.setuptools.package-data]
+battop = [
+    "locales/*.json",
+    "assets/*",
+    "platforms/linux/helper.py",
+    "platforms/linux/org.battop.helper.policy",
+]
