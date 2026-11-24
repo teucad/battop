@@ -34,10 +34,23 @@ _BOOL_KEYS = (
     "brightness_enabled",
     "cpu_limit_enabled",
     "battery_saver_enabled",
+    "refresh_rate_enabled",
+    "timeouts_enabled",
+    "bluetooth_enabled",
+    "low_tier_enabled",
     "app_efficiency_enabled",
     "start_minimized",
 )
-_NUMBER_KEYS = ("brightness_percent", "cpu_max_percent", "battery_saver_threshold")
+_NUMBER_KEYS = (
+    "brightness_percent",
+    "cpu_max_percent",
+    "battery_saver_threshold",
+    "screen_off_minutes",
+    "sleep_minutes",
+    "low_tier_threshold",
+    "low_brightness_percent",
+    "low_cpu_max_percent",
+)
 _SAVE_DELAY_MS = 600
 _POLL_MS = 500
 _MAX_LOG_LINES = 300
@@ -75,8 +88,8 @@ class MainWindow:
 
         scale = root.winfo_fpixels("1i") / 96
         root.title("Battop - Battery Saver")
-        root.geometry(f"{int(580 * scale)}x{int(660 * scale)}")
-        root.minsize(int(500 * scale), int(560 * scale))
+        root.geometry(f"{int(640 * scale)}x{int(660 * scale)}")
+        root.minsize(int(580 * scale), int(560 * scale))
         root.configure(bg=COLORS["bg"])
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -88,6 +101,9 @@ class MainWindow:
         notebook.pack(fill="both", expand=True, padx=14, pady=(14, 4))
         notebook.add(self._build_overview(notebook), text="Overview")
         notebook.add(self._build_power_page(notebook), text="Power saving")
+        if platform.supported_keys & {"refresh_rate", "timeouts", "bluetooth"}:
+            notebook.add(self._build_extras_page(notebook), text="Extras")
+        notebook.add(self._build_low_battery_page(notebook), text="Low battery")
         if "app_efficiency" in platform.supported_keys:
             notebook.add(self._build_apps_page(notebook), text="Apps")
         notebook.add(self._build_general_page(notebook), text="General")
@@ -159,32 +175,45 @@ class MainWindow:
                 ).pack(anchor="w", pady=(8, 0))
         return card
 
-    def _slider_card(self, parent, toggle_key, value_key, title, text, low, high) -> None:
+    def _slider_card(self, parent, toggle_key, value_key, title, text, low, high, unit="%", step=5) -> None:
+        self._sliders_card(parent, toggle_key, title, text, [(value_key, None, low, high, unit, step)])
+
+    def _sliders_card(self, parent, toggle_key, title, text, sliders) -> None:
+        """A toggle with one or more sliders; each slider is (key, caption, low, high, unit, step).
+
+        A lone slider shows its value on the title row; several get a captioned row each.
+        """
         card = self._card(parent)
         top = ttk.Frame(card, style="Card.TFrame")
         top.pack(fill="x")
-        toggle, value = self.vars[toggle_key], self.vars[value_key]
+        toggle = self.vars[toggle_key]
         ttk.Checkbutton(top, text=title, variable=toggle, style="Card.TCheckbutton").pack(side="left")
-        value_label = ttk.Label(top, style="Value.TLabel")
-        value_label.pack(side="right")
-        slider = ttk.Scale(
-            card,
-            from_=low,
-            to=high,
-            variable=value,
-            orient="horizontal",
-            command=lambda v: value.set(round(float(v) / 5) * 5),
-        )
-        slider.pack(fill="x", pady=(8, 0))
+        widgets = []
+        for key, caption, low, high, unit, step in sliders:
+            value = self.vars[key]
+            row = top if caption is None else ttk.Frame(card, style="Card.TFrame")
+            if caption is not None:
+                row.pack(fill="x", pady=(8, 0))
+                ttk.Label(row, text=caption, style="Card.TLabel").pack(side="left")
+            value_label = ttk.Label(row, style="Value.TLabel")
+            value_label.pack(side="right")
+            slider = ttk.Scale(
+                card, from_=low, to=high, variable=value, orient="horizontal",
+                command=lambda v, value=value, low=low, step=step: value.set(max(low, round(float(v) / step) * step)),
+            )
+            slider.pack(fill="x", pady=(8 if caption is None else 2, 0))
+            widgets.append((value, value_label, slider, unit))
         self._description(card, text)
 
         def refresh(*_):
             on = toggle.get()
-            value_label.configure(text=f"{value.get():.0f}%", foreground=COLORS["accent" if on else "idle"])
-            slider.state(["!disabled"] if on else ["disabled"])
+            for value, label, slider, unit in widgets:
+                label.configure(text=f"{value.get():.0f}{unit}", foreground=COLORS["accent" if on else "idle"])
+                slider.state(["!disabled"] if on else ["disabled"])
 
         toggle.trace_add("write", refresh)
-        value.trace_add("write", refresh)
+        for value, *_ in widgets:
+            value.trace_add("write", refresh)
         refresh()
 
     # --- Pages ----------------------------------------------------------------
@@ -257,6 +286,51 @@ class MainWindow:
                 "and notifications once your charge drops below this level.",
                 5, 100,
             )
+        return page
+
+    def _build_extras_page(self, notebook) -> ttk.Frame:
+        page = self._page(notebook)
+        supported = self.platform.supported_keys
+        if "refresh_rate" in supported:
+            self._toggle_card(
+                page,
+                "refresh_rate_enabled",
+                "Lower the screen refresh rate",
+                "Switches to the lowest smooth rate (60 Hz or more). High-refresh screens use noticeably more "
+                "power; motion looks a little less fluid. Your normal rate returns when you plug in.",
+            )
+        if "timeouts" in supported:
+            self._sliders_card(
+                page, "timeouts_enabled", "Turn off the screen and sleep sooner",
+                "Only ever shortens your Windows battery timeouts, never lengthens them.",
+                [
+                    ("screen_off_minutes", "Turn off screen after", 1, 30, " min", 1),
+                    ("sleep_minutes", "Sleep after", 1, 60, " min", 1),
+                ],
+            )
+        if "bluetooth" in supported:
+            self._toggle_card(
+                page,
+                "bluetooth_enabled",
+                "Turn Bluetooth off when nothing is connected",
+                "If a mouse, headset or other device is connected, Bluetooth is left on. "
+                "It is switched back on when you plug in.",
+            )
+        return page
+
+    def _build_low_battery_page(self, notebook) -> ttk.Frame:
+        page = self._page(notebook)
+        self._sliders_card(
+            page, "low_tier_enabled", "Save extra power when the battery is low",
+            "Once the charge drops to the level below, Battop dims the screen further and limits the "
+            "processor, even if those options are off above. It backs off again once the charge "
+            "recovers a little. Stricter settings you chose elsewhere are kept.",
+            [
+                ("low_tier_threshold", "When the charge is at or below", 5, 50, "%", 5),
+                ("low_brightness_percent", "Dim the screen to", 5, 100, "%", 5),
+                ("low_cpu_max_percent", "Limit processor speed to", 30, 100, "%", 5),
+            ],
+        )
         return page
 
     def _build_apps_page(self, notebook) -> ttk.Frame:

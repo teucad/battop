@@ -46,7 +46,11 @@ SCHEME_POWER_SAVER = "a1841308-3541-4fab-bc81-f71556f20b4a"
 # Power-scheme settings (see `powercfg /query`).
 SUB_PROCESSOR = "54533251-82be-4824-96c1-47b60b740d00"
 PROCESSOR_MAX_STATE = "bc5038f7-23e0-4960-96da-33abaf5935ec"
-SUB_ENERGY_SAVER = "de830923-a562-41af-a086-e3a2c6bad2da"
+SUB_VIDEO = "7516b95f-f776-4464-8c53-06167f40cc99"
+VIDEO_IDLE = "3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e"  # Turn off display after (seconds)
+SUB_SLEEP = "238c9fa8-0aad-41ed-83f4-97be242c8f20"
+STANDBY_IDLE = "29f6c1db-86da-48c5-9fdb-f2b67b1f44da"  # Sleep after (seconds)
+SUB_ENERGY_SAVER ="de830923-a562-41af-a086-e3a2c6bad2da"
 ENERGY_SAVER_THRESHOLD = "e69653ca-cf7f-4f05-aa73-cb833fa90ad4"
 
 

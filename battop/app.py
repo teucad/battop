@@ -34,6 +34,7 @@ def _setup_logging(debug: bool) -> queue.Queue:
 _NOTIFICATIONS = {
     "saving_on": ("Battery saving is on", "Running on battery. Your power-saving settings are active."),
     "saving_off": ("Battery saving is off", "Your usual settings are back."),
+    "low_tier": ("Battery is low", "Battop is saving extra power."),
 }
 
 

@@ -10,7 +10,10 @@ from .actions.app_efficiency import running_process_names
 class WindowsPlatform:
     name = "windows"
     supported_keys = frozenset(
-        {"power_mode", "brightness", "cpu_limit", "battery_saver", "app_efficiency"}
+        {
+            "power_mode", "brightness", "cpu_limit", "battery_saver", "app_efficiency",
+            "refresh_rate", "timeouts", "bluetooth",
+        }
     )
 
     def init_process(self) -> None:

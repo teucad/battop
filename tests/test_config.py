@@ -33,9 +33,10 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.efficiency_apps, ("discord.exe", "steam.exe"))
 
     def test_effective_only_changes_anything_while_low(self):
-        base = Settings(brightness_percent=50, cpu_limit_enabled=False)
+        base = Settings(brightness_enabled=False, brightness_percent=50, cpu_limit_enabled=False)
         self.assertIs(effective(base, False), base)
         low = effective(base, True)
+        self.assertTrue(low.brightness_enabled)
         self.assertEqual(low.brightness_percent, base.low_brightness_percent)
         self.assertTrue(low.cpu_limit_enabled)
         self.assertEqual(low.cpu_max_percent, base.low_cpu_max_percent)

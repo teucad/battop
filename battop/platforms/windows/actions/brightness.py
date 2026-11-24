@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
-import subprocess
 
 from battop.actions.base import Action
+
+from .. import ps
 
 log = logging.getLogger(__name__)
 
@@ -19,27 +20,20 @@ _SET = (
 )
 
 
-def _powershell(command: str) -> int:
-    result = subprocess.run(
-        ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
-        capture_output=True,
-        text=True,
-        timeout=20,
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
-    output = result.stdout.strip()
-    if result.returncode != 0 or not output.isdigit():
+def _brightness_command(command: str) -> int:
+    output = ps.run(command)
+    if not output.isdigit():
         raise OSError("screen brightness can't be controlled on this display")
     return int(output)
 
 
 def get_brightness() -> int:
-    return _powershell(_GET)
+    return _brightness_command(_GET)
 
 
 def set_brightness(level: int) -> int:
     """Set brightness and return the level the display actually settled on."""
-    return _powershell(_SET.format(level=int(level)))
+    return _brightness_command(_SET.format(level=int(level)))
 
 
 class BrightnessAction(Action):

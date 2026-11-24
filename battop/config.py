@@ -103,13 +103,14 @@ def effective(settings: Settings, low: bool) -> Settings:
     """The settings the actions should use right now.
 
     While the battery is low, the screen is dimmed further and the processor limit is
-    forced on. Anything the user already set stricter is kept.
+    forced on (both even if the user left them off). Anything the user already set stricter is kept.
     """
     if not (low and settings.low_tier_enabled):
         return settings
     cpu_max = settings.cpu_max_percent if settings.cpu_limit_enabled else 100
     return replace(
         settings,
+        brightness_enabled=True,
         brightness_percent=min(settings.brightness_percent, settings.low_brightness_percent),
         cpu_limit_enabled=True,
         cpu_max_percent=min(cpu_max, settings.low_cpu_max_percent),
