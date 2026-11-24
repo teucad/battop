@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,8 @@ name = "battop"
 dynamic = ["version"]
 description = "Automatic battery saving for laptops: applies power-saving tweaks when unplugged and undoes them when plugged in."
 readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = ["Pillow>=10.0", "pystray>=0.19"]
 classifiers = [

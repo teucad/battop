@@ -133,6 +133,10 @@ python -m unittest discover -s tests -t .
    `_toggle_card` or `_slider_card`.
 4. Wrap user-facing strings in `_()` / `N_()` and add translations to `locales/tr.json`.
 
+## License
+
+GPL-3.0. See [LICENSE](LICENSE).
+
 ## Credits
 
 The ASUS AniMe Matrix protocol details come from the
